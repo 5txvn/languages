@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Language Practice</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans antialiased">
+  <div id="app" class="mx-auto max-w-3xl px-6 py-10">
+    <!-- Loading -->
+    <section id="screen-loading" class="space-y-4">
+      <h1 class="text-2xl font-bold text-white">Language Practice</h1>
+      <div class="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+        <div id="load-bar" class="h-full w-0 rounded-full bg-emerald-500 transition-all duration-300"></div>
+      </div>
+      <p id="load-status" class="text-sm text-zinc-400">Loading…</p>
+    </section>
+
+    <!-- Menu -->
+    <section id="screen-menu" class="hidden space-y-6">
+      <header>
+        <h1 class="text-2xl font-bold text-white">Language Practice</h1>
+        <div class="mt-2 h-px w-full bg-zinc-700"></div>
+      </header>
+      <div>
+        <p class="mb-4 text-lg font-semibold text-white">Choose word difficulty</p>
+        <ul id="level-list" class="space-y-2"></ul>
+      </div>
+      <p class="text-sm text-zinc-500">Click a level to start</p>
+    </section>
+
+    <!-- Game -->
+    <section id="screen-game" class="hidden space-y-8">
+      <header class="flex items-baseline justify-between gap-4 border-b border-zinc-700 pb-3">
+        <h1 id="game-title" class="text-xl font-bold text-white"></h1>
+        <span id="game-score" class="text-xl font-bold text-emerald-400"></span>
+      </header>
+
+      <p id="game-sentence" class="text-2xl leading-relaxed tracking-wide"></p>
+      <p id="game-translation" class="text-lg text-zinc-300 underline decoration-zinc-600 underline-offset-4"></p>
+
+      <input
+        id="game-input"
+        type="text"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+        class="absolute h-px w-px overflow-hidden opacity-0"
+        aria-label="Answer input"
+      />
+
+      <p id="game-footer" class="text-sm text-zinc-500"></p>
+    </section>
+
+    <!-- Error -->
+    <section id="screen-error" class="hidden space-y-4">
+      <h1 class="text-2xl font-bold text-red-400">Could not load</h1>
+      <p id="error-message" class="text-zinc-300"></p>
+      <p class="text-sm text-zinc-500">
+        Serve this folder from the repo root, e.g.
+        <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">python -m http.server</code>
+        then open
+        <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">http://localhost:8000/app/</code>
+      </p>
+    </section>
+  </div>
+
+  <script>
+    const WORD_PATTERN = /\b[\wáéíóúüñÁÉÍÓÚÜÑàèéìòùäöüß'-]+\b/gu;
+    const TARGET_COUNT = 20000;
+
+    const DIFFICULTY_LEVELS = [
+      { name: "Beginner", lo: 5.0, hi: 5.5 },
+      { name: "Easy", lo: 4.5, hi: 5.0 },
+      { name: "Medium", lo: 4.0, hi: 4.5 },
+      { name: "Challenging", lo: 3.5, hi: 4.0 },
+      { name: "Hard", lo: 3.0, hi: 3.5 },
+      { name: "Expert", lo: 2.5, hi: 3.0 },
+    ];
+
+    const state = {
+      lang: "es",
+      zipfDict: {},
+      sentences: [],
+      points: 0,
+      level: null,
+      puzzle: null,
+      translation: "",
+      typed: "",
+      hintChars: 0,
+      revealed: false,
+      translationCache: {},
+    };
+
+    function showScreen(id) {
+      $("#screen-loading, #screen-menu, #screen-game, #screen-error").addClass("hidden");
+      $(`#${id}`).removeClass("hidden");
+    }
+
+    function normalizeWord(s) {
+      return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    }
+
+    function wordsMatch(guess, answer) {
+      return normalizeWord(guess) === normalizeWord(answer);
+    }
+
+    function formatRange(lo, hi) {
+      return `zipf ${lo.toFixed(1)} – ${hi.toFixed(1)}`;
+    }
+
+    function tokenize(sentence) {
+      return sentence.match(WORD_PATTERN) ?? [];
+    }
+
+    function sentenceOnly(line) {
+      if (line.startsWith("#")) return null;
+      return line.split("\t", 1)[0].trim();
+    }
+
+    function zipfFrequency(word) {
+      const lower = word.toLowerCase();
+      return Object.prototype.hasOwnProperty.call(state.zipfDict, lower) ? state.zipfDict[lower] : 0;
+    }
+
+    function zipfInRange(word, lo, hi) {
+      const z = zipfFrequency(word);
+      return z >= lo && z < hi;
+    }
+
+    function eligibleBlankIndices(tokens, lo, hi) {
+      const indices = [];
+      for (let i = 0; i < tokens.length; i++) {
+        const tok = tokens[i];
+        if (tok.length < 3 || !/^\p{L}+$/u.test(tok)) continue;
+        if (zipfInRange(tok, lo, hi)) indices.push(i);
+      }
+      return indices;
+    }
+
+    function randomSentence() {
+      return state.sentences[Math.floor(Math.random() * state.sentences.length)];
+    }
+
+    function buildPuzzle(lo, hi, maxTries = 120) {
+      for (let i = 0; i < maxTries; i++) {
+        const sentence = randomSentence();
+        const tokens = tokenize(sentence);
+        if (tokens.length < 5) continue;
+        const candidates = eligibleBlankIndices(tokens, lo, hi);
+        if (candidates.length === 0) continue;
+        const blankIndex = candidates[Math.floor(Math.random() * candidates.length)];
+        return { sentence, tokens, blankIndex, answer: tokens[blankIndex] };
+      }
+      return null;
+    }
+
+    function combinedGuess(answer, typed, hintChars) {
+      return answer.slice(0, hintChars) + typed;
+    }
+
+    function renderBlankHtml(tokens, blankIndex, answer, typed, hintChars, revealed) {
+      return tokens
+        .map((tok, i) => {
+          if (i !== blankIndex) {
+            return `<span class="text-zinc-100">${$("<span>").text(tok).html()}</span>`;
+          }
+          if (revealed) {
+            return `<span class="font-bold text-red-500">${$("<span>").text(answer).html()}</span>`;
+          }
+          const combined = combinedGuess(answer, typed, hintChars);
+          const target = normalizeWord(answer);
+          const current = normalizeWord(combined);
+          const match = combined.length > 0 && (current === target || target.startsWith(current));
+          const color = match ? "text-emerald-400" : "text-red-500";
+          const underscores = "_".repeat(Math.max(0, answer.length - combined.length));
+          const safeCombined = $("<span>").text(combined).html();
+          const safeUnderscores = $("<span>").text(underscores).html();
+          return `<span class="font-bold ${color}">${safeCombined}</span><span class="text-zinc-600">${safeUnderscores}</span>`;
+        })
+        .join('<span class="text-zinc-600"> </span>');
+    }
+
+    function setLoadProgress(pct, msg) {
+      $("#load-bar").css("width", `${Math.min(100, pct)}%`);
+      $("#load-status").text(msg);
+    }
+
+    function readLangFromText(text) {
+      const match = text.slice(0, 32).match(/^# lang=([a-z]{2})/);
+      return match ? match[1] : "es";
+    }
+
+    function streamSentences(url, maxStore) {
+      return fetch(url).then((res) => {
+        if (!res.ok) throw new Error(`Could not load ${url}: HTTP ${res.status}`);
+        const total = Number(res.headers.get("Content-Length")) || 0;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let lines = [];
+        let totalLines = 0;
+        let bytesRead = 0;
+        let lang = null;
+
+        function processLine(raw) {
+          const trimmed = raw.trim();
+          if (!lang && trimmed.startsWith("#")) {
+            lang = readLangFromText(trimmed + "\n");
+            return;
+          }
+          const line = sentenceOnly(trimmed);
+          if (!line) return;
+          totalLines += 1;
+          if (lines.length < maxStore) {
+            lines.push(line);
+          } else {
+            const j = Math.floor(Math.random() * totalLines);
+            if (j < maxStore) lines[j] = line;
+          }
+        }
+
+        function pump() {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              if (buffer.trim()) processLine(buffer);
+              return { lines, lang: lang || "es" };
+            }
+            bytesRead += value.byteLength;
+            if (total > 0) {
+              setLoadProgress(20 + (bytesRead / total) * 75, `Sampling sentences… ${Math.round((bytesRead / total) * 100)}%`);
+            } else {
+              setLoadProgress(50, `Sampling sentences… ${lines.length.toLocaleString()} kept`);
+            }
+            buffer += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buffer.indexOf("\n")) >= 0) {
+              processLine(buffer.slice(0, idx));
+              buffer = buffer.slice(idx + 1);
+            }
+            return pump();
+          });
+        }
+
+        return pump();
+      });
+    }
+
+    function loadZipf(lang) {
+      return $.getJSON(`../${lang}_word_zipf.json`);
+    }
+
+    function translateSentence(text) {
+      const key = `${state.lang}:${text}`;
+      if (state.translationCache[key]) {
+        return $.Deferred().resolve(state.translationCache[key]).promise();
+      }
+      return $.ajax({
+        url: "https://translate.googleapis.com/translate_a/single",
+        data: { client: "gtx", sl: state.lang, tl: "en", dt: "t", q: text },
+        dataType: "json",
+      }).then((data) => {
+        const result = data[0][0][0];
+        state.translationCache[key] = result;
+        return result;
+      });
+    }
+
+    function renderMenu() {
+      const $list = $("#level-list").empty();
+      $.each(DIFFICULTY_LEVELS, (i, { name, lo, hi }) => {
+        $("<li>")
+          .append(
+            $("<button>")
+              .addClass(
+                "flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-800"
+              )
+              .attr("data-level", i)
+              .append(
+                $("<span>").addClass("font-bold text-cyan-400").text(String(i + 1)),
+                $("<span>").addClass("w-28 font-medium text-white").text(name),
+                $("<span>").addClass("text-sm text-zinc-500").text(`(${formatRange(lo, hi)})`)
+              )
+          )
+          .appendTo($list);
+      });
+    }
+
+    function refreshGame() {
+      const { puzzle, typed, hintChars, revealed, points, level } = state;
+      $("#game-title").text(`Language Practice (${level.name})`);
+      $("#game-score").text(`Score: ${points}`);
+      $("#game-sentence").html(
+        renderBlankHtml(puzzle.tokens, puzzle.blankIndex, puzzle.answer, typed, hintChars, revealed)
+      );
+      $("#game-translation").text(state.translation);
+      $("#game-footer").text(
+        revealed ? "Enter — next question" : "? hint · Enter show answer · Backspace edit"
+      );
+    }
+
+    function tryAutoCorrect() {
+      const { puzzle, typed, hintChars } = state;
+      const guess = combinedGuess(puzzle.answer, typed, hintChars);
+      if (guess.length === puzzle.answer.length && wordsMatch(guess, puzzle.answer)) {
+        state.points += 1;
+        nextQuestion();
+      }
+    }
+
+    function nextQuestion() {
+      state.typed = "";
+      state.hintChars = 0;
+      state.revealed = false;
+      startRound();
+    }
+
+    function startRound() {
+      const { lo, hi } = state.level;
+      const puzzle = buildPuzzle(lo, hi);
+      if (!puzzle) {
+        alert("No matching sentences found. Try another difficulty.");
+        showScreen("screen-menu");
+        return;
+      }
+      state.puzzle = puzzle;
+      state.translation = "Translating…";
+      refreshGame();
+      $("#game-input").val("").focus();
+
+      translateSentence(puzzle.sentence)
+        .then((t) => {
+          state.translation = t;
+          refreshGame();
+        })
+        .fail(() => {
+          state.translation = "(translation unavailable)";
+          refreshGame();
+        });
+    }
+
+    function startGame(levelIndex) {
+      state.level = DIFFICULTY_LEVELS[levelIndex];
+      state.points = 0;
+      state.typed = "";
+      state.hintChars = 0;
+      state.revealed = false;
+      showScreen("screen-game");
+      startRound();
+    }
+
+    function handleGameKey(e) {
+      if ($("#screen-game").hasClass("hidden")) return;
+
+      const { puzzle, revealed } = state;
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (revealed) {
+          nextQuestion();
+        } else {
+          state.revealed = true;
+          refreshGame();
+        }
+        return;
+      }
+
+      if (revealed) return;
+
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        if (state.typed.length > 0) {
+          state.typed = state.typed.slice(0, -1);
+        } else if (state.hintChars > 0) {
+          state.hintChars -= 1;
+        }
+        refreshGame();
+        return;
+      }
+
+      if (e.key === "?") {
+        e.preventDefault();
+        if (state.hintChars < puzzle.answer.length) {
+          state.hintChars += 1;
+          refreshGame();
+          tryAutoCorrect();
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const remaining = puzzle.answer.length - state.hintChars;
+        if (state.typed.length < remaining) {
+          e.preventDefault();
+          state.typed += e.key;
+          refreshGame();
+          tryAutoCorrect();
+        }
+      }
+    }
+
+    function loadAll() {
+      setLoadProgress(0, "Sampling sentences (first load may take a minute)…");
+
+      streamSentences("../sentences.txt", TARGET_COUNT)
+        .then(({ lines, lang }) => {
+          if (!lines.length) throw new Error("No sentences loaded");
+          state.lang = lang;
+          state.sentences = lines;
+          setLoadProgress(95, `Loading ${lang} word frequencies…`);
+          return loadZipf(lang).then((dict) => {
+            state.zipfDict = dict;
+            setLoadProgress(100, `Ready — ${lines.length.toLocaleString()} sentences sampled`);
+          });
+        })
+        .then(() => {
+          renderMenu();
+          showScreen("screen-menu");
+        })
+        .catch((err) => {
+          $("#error-message").text(err && err.message ? err.message : String(err));
+          showScreen("screen-error");
+        });
+    }
+
+    $(function () {
+      $("#level-list").on("click", "button[data-level]", function () {
+        startGame(Number($(this).attr("data-level")));
+      });
+
+      $(document).on("keydown", handleGameKey);
+
+      $("#screen-game").on("click", () => {
+        $("#game-input").focus();
+      });
+
+      loadAll();
+    });
+  </script>
+</body>
+</html>

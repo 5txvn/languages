@@ -1,0 +1,7 @@
+mwxml>=0.3.3
+mwparserfromhell>=0.6.6
+spacy>=3.7.0
+wordfreq>=3.0.0
+regex>=2024.0.0
+tqdm>=4.66.0
+langdetect>=1.0.9

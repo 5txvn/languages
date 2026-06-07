@@ -1,0 +1,13 @@
+{
+  "name": "language-practice",
+  "version": "1.0.0",
+  "description": "CLI fill-in-the-blank language practice",
+  "type": "module",
+  "scripts": {
+    "practice": "node practice.js"
+  },
+  "dependencies": {
+    "@vitalets/google-translate-api": "^9.2.1",
+    "chalk": "^5.4.1"
+  }
+}

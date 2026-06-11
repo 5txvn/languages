@@ -3,442 +3,834 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Language Practice</title>
+  <title>Wikora</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <style>
+    :root {
+      --bg: #f0f0f2; --card: #fff; --border: #d8d8dc;
+      --text: #1c1c1e; --muted: #6b6b70; --primary: #3a3a40; --secondary: #5c5c63;
+      --hot: #16a34a; --cold: #dc2626;
+      --lookup-width: 440px;
+      --radius-card: 1.25rem;
+      --radius-pill: 9999px;
+      --radius-sm: 0.75rem;
+      --border-width: 1px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; margin: 0; }
+    body { font-family: "DM Sans", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .screen { display: none; height: 100vh; overflow: hidden; position: relative; z-index: 1; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    .card { background: var(--card); border: var(--border-width) solid var(--border); border-radius: var(--radius-card); }
+    .pill { border: var(--border-width) solid var(--border); border-radius: var(--radius-pill); background: var(--card); }
+    .btn-primary { background: var(--primary); color: #fff; border: var(--border-width) solid var(--primary); border-radius: var(--radius-pill); font-weight: 600; cursor: pointer; }
+    .btn-primary:hover:not(:disabled) { opacity: .9; }
+    .btn-primary:disabled { background: #b0b0b6; color: #fff; cursor: not-allowed; opacity: 1; }
+    .btn-ghost { background: var(--card); border: var(--border-width) solid var(--border); border-radius: var(--radius-pill); font-weight: 500; cursor: pointer; color: var(--text); }
+    .btn-ghost:hover { border-color: var(--primary); }
+    .btn-danger { background: #dc2626; color: #fff; border: none; border-radius: 9999px; font-weight: 600; cursor: pointer; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-icon { width: 1.75rem; height: 1.75rem; border-radius: 9999px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-weight: 700; font-size: .8rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .btn-icon:hover { border-color: var(--primary); color: var(--text); }
+    .btn-close-x { width: 2rem; height: 2rem; border: none; background: transparent; color: var(--muted); font-size: 1.35rem; line-height: 1; cursor: pointer; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .btn-close-x:hover { background: color-mix(in srgb, var(--border) 50%, transparent); color: var(--text); }
+    .btn-close-x.btn-close-plain:hover { background: transparent; color: var(--muted); }
+
+    .btn-game-bar {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 5.75rem; padding: .5rem 1rem; font-size: .875rem; font-weight: 600;
+      line-height: 1.2; text-align: center; white-space: nowrap;
+    }
+    .btn-game {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 2.5rem; padding: .5rem 1.15rem; font-size: .875rem; font-weight: 600;
+      line-height: 1.2; white-space: nowrap;
+    }
+    .game-actions .btn-ghost { min-width: 5.75rem; padding: .5rem 1rem; font-size: .875rem; font-weight: 600; }
+    .toast { min-width: 4.25rem; padding: .5rem .75rem; font-size: .75rem; line-height: 1.2; text-align: center; white-space: nowrap; }
+    .game-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0; padding: 1rem 1.25rem; gap: 1rem;
+    }
+    .game-header.limited { display: grid; grid-template-columns: auto 1fr auto; align-items: center; }
+    .game-header.limited #game-progress { justify-self: center; }
+    .game-header.limited #score-pill { justify-self: end; }
+    .game-stage {
+      flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+      overflow: hidden; padding: 1rem 1.25rem 5rem;
+    }
+    .game-stage-inner {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      width: 100%; max-width: 48rem; gap: 1.25rem;
+    }
+    .game-badge {
+      display: inline-flex; align-items: center; gap: .5rem;
+      width: fit-content; max-width: 100%; padding: .5rem 1rem;
+      font-size: .875rem; font-weight: 600;
+    }
+    .game-sentence-card { width: 100%; padding: 2rem 1.5rem; }
+    .game-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem; }
+    .game-hint-text { margin: 0; text-align: center; font-size: .75rem; color: var(--muted); line-height: 1.4; }
+    .game-article { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; text-align: left; }
+    .settings-modal-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+    .settings-modal-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+    .settings-native-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem;
+      margin-top: .75rem; max-height: 15rem; overflow-y: auto;
+    }
+    @media (min-width: 480px) {
+      .settings-native-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .settings-native-grid .lang-pick { max-width: none; width: 100%; padding: .65rem .5rem; }
+    .btn-audio-inline {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1em; height: 1em; margin-left: .35rem; padding: 0; border: none;
+      background: transparent; color: var(--text); cursor: pointer; vertical-align: middle;
+    }
+    .btn-audio-inline svg { width: .7em; height: .7em; }
+    .btn-audio-inline:hover { opacity: .7; }
+    .lookup-title-row { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+    .lookup-title-row #lookup-title { margin: 0; }
+    .blocky-input {
+      border: var(--border-width) solid var(--border) !important;
+      border-radius: var(--radius-sm) !important;
+      background: var(--card) !important;
+    }
+    .prose-content { line-height: 1.65; color: var(--text); }
+    .prose-content h1 { font-size: 1.45rem; font-weight: 700; margin: 0 0 1rem; letter-spacing: -.02em; }
+    .prose-content h2 { font-size: 1.05rem; font-weight: 700; margin: 1.35rem 0 .5rem; }
+    .prose-content h3 { font-size: .95rem; font-weight: 700; margin: 1rem 0 .35rem; }
+    .prose-content p { margin: 0 0 .85rem; }
+    .prose-content ul, .prose-content ol { margin: 0 0 .85rem; padding-left: 1.25rem; }
+    .prose-content li { margin: .25rem 0; }
+    .prose-content blockquote { margin: .85rem 0; padding: .65rem .85rem; border-left: 3px solid var(--border); color: var(--muted); }
+    .prose-content hr { border: none; border-top: var(--border-width) solid var(--border); margin: 1.25rem 0; }
+    .prose-content code { font-size: .9em; padding: .1rem .3rem; border: 1px solid var(--border); background: color-mix(in srgb, var(--border) 25%, transparent); }
+    .prose-content table { width: 100%; border-collapse: collapse; margin: .85rem 0; font-size: .875rem; }
+    .prose-content th, .prose-content td { border: var(--border-width) solid var(--border); padding: .4rem .55rem; text-align: left; }
+    .prose-content a { color: var(--primary); text-decoration: underline; }
+    .home-lang-card { display: flex; align-items: stretch; padding: 0; overflow: hidden; }
+    .home-lang-card .home-lang-open {
+      flex: 1; min-width: 0; border: none; background: transparent; cursor: pointer; color: inherit;
+    }
+    .home-lang-card .btn-remove-lang {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2.75rem; flex-shrink: 0; padding: 0;
+      border: none; border-left: var(--border-width) solid var(--border);
+      border-radius: 0; background: transparent; color: var(--muted);
+      font-size: 1.15rem; line-height: 1; cursor: pointer;
+    }
+    .home-lang-card .btn-remove-lang:hover { color: var(--text); background: color-mix(in srgb, var(--border) 30%, transparent); }
+    .add-lang-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem;
+      margin-top: .75rem; max-height: 18rem; overflow-y: auto;
+    }
+    .add-lang-grid .lang-pick { max-width: none; width: 100%; }
+    .modal-panel.modal-wide { max-width: 30rem; }
+    .hub-coming-soon { font-size: .75rem; color: var(--muted); margin-top: .35rem; }
+    .activity-card.disabled { opacity: .45; pointer-events: none; }
+
+    .range-wrap { position: relative; height: 28px; margin: 1rem 0; }
+    .range-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; transform: translateY(-50%); background: var(--border); border-radius: 2px; }
+    .range-fill { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: var(--primary); border-radius: 2px; pointer-events: none; }
+    .range-wrap input[type=range] { position: absolute; width: 100%; top: 0; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none; height: 28px; }
+    .range-wrap input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: all; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18); cursor: grab; }
+    .range-wrap input[type=range]::-moz-range-thumb { pointer-events: all; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18); cursor: grab; }
+
+    #sentence-line { font-size: clamp(1.2rem, 3.8vw, 1.75rem); line-height: 1.7; font-weight: 400; user-select: text; }
+    .blank-inline { display: inline-flex; align-items: baseline; vertical-align: baseline; border-bottom: 2px solid var(--primary); margin: 0 1px; padding: 0 1px 2px; }
+    .blank-inline .hint-part { color: var(--primary); font-weight: 700; white-space: pre; }
+    .blank-inline input { font: inherit; font-size: inherit; line-height: inherit; font-weight: 700; border: none; outline: none; background: transparent; padding: 0; margin: 0; min-width: 0; caret-color: var(--text); color: var(--text); }
+    .blank-inline input.hidden { display: none; }
+    .blank-inline.blank-hot .hint-part, .blank-inline.blank-hot input { color: var(--hot) !important; }
+    .blank-inline.blank-cold .hint-part, .blank-inline.blank-cold input { color: var(--cold) !important; }
+    .blank-inline .revealed-answer { font-weight: 700; font-size: inherit; line-height: inherit; }
+
+    .modal { display: none; }
+    .modal.open { display: flex; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 40; align-items: center; justify-content: center; padding: 1rem; }
+    .modal-panel { background: var(--card); border: 1px solid var(--border); border-radius: 1.25rem; max-width: 26rem; width: 100%; max-height: 85vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 16px 48px rgba(0,0,0,.12); }
+    .accent-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem; }
+    .accent-grid button { aspect-ratio: 1; font-size: 1.25rem; border-radius: .75rem; border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+
+    .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 9999px; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+    .lang-pick { cursor: pointer; width: 100%; max-width: 5.5rem; }
+    .lang-pick.selected { border-color: var(--primary) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent); }
+    .score-pill.score-bounce { animation: scoreBounce .55s ease; }
+    @keyframes scoreBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.18); } 60% { transform: scale(.95); } }
+    .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+
+    #word-tooltip { position: fixed; z-index: 45; display: none; background: var(--card); border: 1px solid var(--border); border-radius: .5rem; padding: .35rem; font-size: .8125rem; box-shadow: 0 4px 16px rgba(0,0,0,.1); pointer-events: auto; min-width: 9rem; }
+    .tooltip-action { display: block; width: 100%; text-align: left; padding: .4rem .55rem; border: none; background: transparent; border-radius: .35rem; cursor: pointer; font-size: .8125rem; color: var(--text); }
+    .tooltip-action:hover { background: color-mix(in srgb, var(--border) 45%, transparent); }
+
+    #lookup-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: var(--lookup-width);
+      max-width: 94vw; background: var(--card); border-left: 1px solid var(--border);
+      box-shadow: -12px 0 40px rgba(0,0,0,.1); z-index: 46;
+      transform: translateX(100%); transition: transform .28s ease;
+      display: flex; flex-direction: column;
+    }
+    #lookup-panel.open { transform: translateX(0); }
+    #lookup-resizer { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 2; }
+    #lookup-resizer:hover { background: color-mix(in srgb, var(--primary) 15%, transparent); }
+    .lookup-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: .85rem 1rem; border-bottom: 1px solid var(--border); }
+    .lookup-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: .75rem; gap: .5rem; }
+    #lookup-wiki-scroll { flex: 0 0 32%; min-height: 100px; max-height: 38%; overflow-y: auto; border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); padding: .85rem 1rem; background: var(--card); }
+    .wiki-content { font-family: "DM Sans", system-ui, sans-serif; font-size: .875rem; line-height: 1.55; color: #202122; }
+    .wiki-content .hatnote { font-size: .8rem; color: #54595d; margin: 0 0 .5rem; }
+    .wiki-content .sister-wikipedia { display: flex; align-items: flex-start; gap: .5rem; font-size: .8rem; color: #54595d; margin: 0 0 .75rem; padding: .35rem 0; border-bottom: 1px solid #eaecf0; }
+    .wiki-content .sister-wikipedia img { width: 1.25rem; height: 1.25rem; flex-shrink: 0; margin-top: .1rem; }
+    .wiki-content h1, .wiki-content h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 .5rem; padding: 0; border: none; line-height: 1.3; }
+
+    .wiki-content h3, .wiki-content h4 { font-size: 1.05rem; font-weight: 700; margin: .85rem 0 .35rem; line-height: 1.3; }
+    .wiki-content h5 { font-size: .95rem; font-weight: 700; margin: .65rem 0 .25rem; }
+    .wiki-content p { margin: .35rem 0 .65rem; }
+    .wiki-content ul, .wiki-content ol { margin: .35rem 0 .65rem 1.25rem; padding: 0; }
+    .wiki-content li { margin: .2rem 0; }
+    .wiki-content dl { margin: .35rem 0 .65rem; }
+    .wiki-content dt { font-weight: 600; }
+    .wiki-content dd { margin: .15rem 0 .45rem 1rem; }
+    .wiki-content a { color: #3366cc; text-decoration: none; }
+    .wiki-content a:hover { text-decoration: underline; }
+    .wiki-content .IPA, .wiki-content .Latn { font-family: "Consolas", "Courier New", monospace; font-size: .9em; }
+    .wiki-content i, .wiki-content em { font-style: italic; }
+    .wiki-content b, .wiki-content strong { font-weight: 600; }
+    .wiki-content table { border-collapse: collapse; font-size: .8rem; }
+    .wiki-content hr { border: none; border-top: 1px solid #eaecf0; margin: .75rem 0; }
+    #lookup-chat-area { flex: 1; min-height: 0; display: flex; flex-direction: column; border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); padding: .65rem; }
+    #chat-input { border: var(--border-width) solid var(--border) !important; border-radius: var(--radius-sm) !important; background: var(--card) !important; }
+    #lookup-chat-messages { flex: 1; min-height: 0; overflow-y: auto; font-size: .8125rem; }
+    .chat-bubble { border-radius: .75rem; padding: .5rem .65rem; margin-bottom: .4rem; max-width: 95%; }
+    .chat-bubble.user { background: color-mix(in srgb, var(--primary) 12%, white); margin-left: auto; }
+    .chat-bubble.assistant { background: color-mix(in srgb, var(--border) 40%, transparent); }
+    .chat-bubble.error { background: #fef2f2; color: #b91c1c; }
+    #lookup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.2); z-index: 45; display: none; }
+    #lookup-overlay.open { display: block; }
+    .game-actions { position: fixed; right: 1.25rem; bottom: 1.75rem; z-index: 5; display: flex; gap: .65rem; }
+    @media (max-width: 640px) {
+      .game-actions { right: auto; left: 50%; transform: translateX(-50%); bottom: 1.35rem; flex-wrap: wrap; justify-content: center; }
+      .game-stage { padding-bottom: 4.5rem; }
+      .game-header { padding: .75rem 1rem; }
+      .lookup-body { padding: .5rem; }
+      #lookup-panel { width: 100vw; max-width: 100vw; }
+    }
+    .review-banner { background: color-mix(in srgb, var(--primary) 12%, white); border: var(--border-width) solid var(--border); border-radius: var(--radius-pill); padding: .35rem .85rem; font-size: .75rem; font-weight: 600; }
+    .btn-audio { width: 2rem; height: 2rem; padding: 0; border-radius: var(--radius-pill); border: var(--border-width) solid var(--border); background: var(--card); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .btn-audio:hover { border-color: var(--primary); }
+    .btn-audio svg { width: .9rem; height: .9rem; }
+    .accent-cmd-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+    .accent-cmd-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; padding: .55rem .35rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--card); min-height: 3.25rem; cursor: pointer; }
+    .accent-cmd-card:hover { border-color: var(--primary); }
+    .accent-cmd-char { font-size: 1.35rem; line-height: 1; }
+    .accent-cmd-code { font-size: .65rem; font-family: ui-monospace, monospace; color: var(--muted); }
+    .accent-details summary { cursor: pointer; font-size: .8125rem; font-weight: 600; color: var(--text); list-style: none; }
+    .accent-details summary::-webkit-details-marker { display: none; }
+    .flashcard-section-label { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: .5rem; }
+    .flashcard-builtin-wrap { margin-top: 1rem; border: 1px solid var(--border); border-radius: 1rem; overflow: hidden; }
+    .flashcard-builtin-wrap summary { cursor: pointer; padding: .75rem 1rem; font-size: .8125rem; font-weight: 600; background: color-mix(in srgb, var(--border) 25%, transparent); list-style: none; }
+    .flashcard-builtin-wrap summary::-webkit-details-marker { display: none; }
+    .flashcard-builtin-wrap[open] summary { border-bottom: 1px solid var(--border); }
+    .flashcard-builtin-body { padding: .75rem; display: flex; flex-direction: column; gap: .5rem; }
+    .flashcard-set-row.builtin { border-style: dashed; }
+    html.theme-rugged {
+      --radius-card: 0;
+      --radius-pill: 0;
+      --radius-sm: 0;
+      --border-width: 2px;
+      --border: #1a1a1a;
+    }
+    html.theme-rugged .card,
+    html.theme-rugged .pill,
+    html.theme-rugged .btn-primary,
+    html.theme-rugged .btn-ghost,
+    html.theme-rugged .btn-danger,
+    html.theme-rugged .toast,
+    html.theme-rugged .modal-panel,
+    html.theme-rugged .hub-tile,
+    html.theme-rugged .activity-card,
+    html.theme-rugged .saved-row,
+    html.theme-rugged .article-row,
+    html.theme-rugged .preset-tile,
+    html.theme-rugged .review-banner,
+    html.theme-rugged .flashcard-builtin-wrap,
+    html.theme-rugged .accent-cmd-card,
+    html.theme-rugged .accent-grid button,
+    html.theme-rugged .btn-icon,
+    html.theme-rugged .btn-icon-trash,
+    html.theme-rugged .btn-audio,
+    html.theme-rugged .saved-tab,
+    html.theme-rugged .chat-bubble,
+    html.theme-rugged #lookup-panel,
+    html.theme-rugged #lookup-wiki-scroll,
+    html.theme-rugged #lookup-chat-area,
+    html.theme-rugged #word-tooltip,
+    html.theme-rugged input[type="checkbox"],
+    html.theme-rugged .select-field,
+    html.theme-rugged .blocky-input,
+    html.theme-rugged .game-progress-bar,
+    html.theme-rugged .game-progress-fill { border-radius: 0 !important; }
+    html.theme-rugged .activity-card:hover { box-shadow: none; }
+    .scroll-panel { flex: 1; overflow-y: auto; overflow-x: hidden; }
+    .site-brand { font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
+    .hub-stat { font-size: 1.5rem; font-weight: 700; }
+    .btn-gear { width: 2.5rem; height: 2.5rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text); }
+    .btn-gear svg { width: 1.35rem; height: 1.35rem; }
+    .lang-pick-wide { max-width: none; width: 100%; flex-direction: row; justify-content: flex-start; gap: .75rem; padding: .75rem 1rem; }
+    .chart-wrap { position: relative; }
+    #chart-tooltip { display: none; position: fixed; z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: .5rem; padding: .35rem .55rem; font-size: .75rem; font-weight: 600; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,.1); transform: translateX(-50%); }
+    .hub-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; margin-top: 1.5rem;
+    }
+    .hub-tile {
+      display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
+      gap: .2rem; min-height: 5.25rem; padding: .85rem .95rem; text-align: left;
+      border: var(--border-width) solid var(--border); background: var(--card);
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .hub-tile:hover:not(.disabled) { border-color: var(--primary); }
+    .hub-tile.disabled { opacity: .42; pointer-events: none; cursor: not-allowed; }
+    .hub-tile-icon { font-size: 1.35rem; line-height: 1; margin-bottom: .15rem; }
+    .hub-tile-label { font-size: .9rem; font-weight: 700; line-height: 1.2; }
+    .hub-tile-desc { font-size: .7rem; color: var(--muted); line-height: 1.3; }
+    .hub-tile-feature {
+      grid-column: 1; grid-row: span 2; min-height: 11rem; justify-content: space-between;
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 11%, var(--card));
+    }
+    .hub-tile-feature .hub-tile-icon { font-size: 1.75rem; }
+    .hub-tile-feature .hub-tile-label { font-size: 1rem; }
+    .hub-tile-wide {
+      grid-column: span 2; flex-direction: row; align-items: center; justify-content: flex-start;
+      gap: .75rem; min-height: 3.75rem;
+    }
+    .hub-tile-wide .hub-tile-body { display: flex; flex-direction: column; gap: .1rem; }
+    .prose-content .toc { margin: 0 0 1.25rem; padding-left: 1.25rem; }
+    .prose-content .toc li { margin: .3rem 0; }
+    .activity-card { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.15rem; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; width: 100%; border: 1px solid var(--border); background: var(--card); border-radius: 1.25rem; }
+    .activity-card:hover { border-color: var(--primary); box-shadow: 0 4px 16px rgba(0,0,0,.06); }
+    .activity-icon { width: 2.5rem; height: 2.5rem; border-radius: .75rem; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; background: color-mix(in srgb, var(--primary) 10%, white); }
+    .activity-card.primary .activity-icon { background: color-mix(in srgb, var(--primary) 18%, white); }
+    .select-field {
+      appearance: none; -webkit-appearance: none;
+      accent-color: var(--primary);
+      background-color: var(--card);
+      color: var(--text);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b6b70' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .85rem center; padding-right: 2.25rem !important;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .select-field:focus { border-color: var(--primary) !important; outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
+    .select-field option { background: var(--card); color: var(--text); padding: .35rem .5rem; }
+    .select-field option:checked,
+    .select-field option:hover,
+    .select-field option:focus { background: var(--primary); color: #fff; }
+    @supports (-moz-appearance: none) {
+      .select-field option:checked { background-color: var(--primary); }
+    }
+    .game-progress-wrap { display: flex; flex-direction: column; align-items: center; gap: .25rem; min-width: 0; width: 100%; max-width: 18rem; }
+    .game-progress-bar { width: 100%; height: 7px; border-radius: 9999px; background: var(--border); overflow: hidden; }
+    .game-progress-fill { height: 100%; background: var(--hot); border-radius: 9999px; transition: width .25s ease; }
+    .game-progress-label { font-size: .7rem; font-weight: 600; color: var(--muted); }
+    input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none;
+      width: 1.125rem; height: 1.125rem; flex-shrink: 0;
+      border: 2px solid var(--border); border-radius: .35rem;
+      background: var(--card); cursor: pointer; position: relative;
+      transition: border-color .15s, background .15s;
+    }
+    input[type="checkbox"]:checked {
+      background: var(--primary); border-color: var(--primary);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 5l3 3 7-7'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: center; background-size: .7rem;
+    }
+    input[type="checkbox"]:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent); outline-offset: 2px; }
+    .saved-row { display: flex; align-items: center; gap: .75rem; border-radius: .75rem; padding: .75rem 1rem; border: 1px solid var(--border); background: var(--card); }
+    .saved-row-text { flex: 1; min-width: 0; font-size: .875rem; line-height: 1.45; margin: 0; }
+    .btn-icon-trash { flex-shrink: 0; width: 2rem; height: 2rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; transition: border-color .15s, color .15s, background .15s; }
+    .btn-icon-trash:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+    .btn-icon-trash.btn-restore:hover { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, white); }
+    .btn-icon-trash svg { width: 1rem; height: 1rem; }
+    .saved-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+    .saved-tab { flex: 1; padding: .5rem; border-radius: 9999px; border: 1px solid var(--border); background: var(--card); font-size: .8125rem; font-weight: 600; cursor: pointer; }
+    .saved-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+    .preset-tile { cursor: pointer; transition: border-color .15s; }
+    .preset-tile:hover { border-color: var(--primary); }
+    .preset-tile .preset-range { font-family: ui-monospace, monospace; font-size: .7rem; color: var(--muted); }
+    .preset-tile .preset-desc { display: none; }
+    .filter-fields.disabled { opacity: .45; pointer-events: none; }
+    .article-row { display: flex; align-items: center; gap: .75rem; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); cursor: pointer; text-align: left; width: 100%; }
+    .article-row:hover { border-color: var(--primary); }
+    .article-row-meta { font-size: .7rem; color: var(--muted); }
+    #article-context { font-size: .8rem; line-height: 1.55; color: var(--muted); max-height: 5.5rem; overflow-y: auto; text-align: left; }
+  </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans antialiased">
-  <div id="app" class="mx-auto max-w-3xl px-6 py-10">
-    <!-- Loading -->
-    <section id="screen-loading" class="space-y-4">
-      <h1 class="text-2xl font-bold text-white">Language Practice</h1>
-      <div class="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
-        <div id="load-bar" class="h-full w-0 rounded-full bg-emerald-500 transition-all duration-300"></div>
+<body>
+
+  <section id="screen-loading" class="screen active items-center justify-center px-6">
+    <div class="card w-full max-w-sm p-8 text-center">
+      <p class="text-sm font-medium" style="color:var(--muted)">Loading</p>
+      <div class="mt-4 h-1.5 overflow-hidden rounded-full" style="background:var(--border)">
+        <div id="load-bar" class="h-full rounded-full transition-all" style="width:0;background:var(--primary)"></div>
       </div>
-      <p id="load-status" class="text-sm text-zinc-400">Loading…</p>
-    </section>
+      <p id="load-status" class="mt-3 text-sm" style="color:var(--muted)">Starting…</p>
+    </div>
+  </section>
 
-    <!-- Menu -->
-    <section id="screen-menu" class="hidden space-y-6">
-      <header>
-        <h1 class="text-2xl font-bold text-white">Language Practice</h1>
-        <div class="mt-2 h-px w-full bg-zinc-700"></div>
-      </header>
-      <div>
-        <p class="mb-4 text-lg font-semibold text-white">Choose word difficulty</p>
-        <ul id="level-list" class="space-y-2"></ul>
+  <section id="screen-home" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <span class="site-brand">Wikora</span>
+      <div class="flex items-center gap-2">
+        <button id="btn-about" type="button" class="btn-ghost px-3 py-2 text-sm">About</button>
+        <button id="btn-settings" type="button" class="btn-ghost btn-gear" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1a7.03 7.03 0 0 0-1.73-1l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65a7.03 7.03 0 0 0-1.73 1l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64L5.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .6.22l2.49-1.01c.52.48 1.1.87 1.73 1.15l.38 2.65a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.38-2.65c.63-.28 1.21-.67 1.73-1.15l2.49 1.01a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.66z"/>
+        </svg>
+      </button>
       </div>
-      <p class="text-sm text-zinc-500">Click a level to start</p>
-    </section>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div id="learning-list" class="mx-auto max-w-lg space-y-3"></div>
+      <button id="btn-add-language" type="button" class="btn-ghost mx-auto mt-5 flex w-full max-w-lg items-center justify-center py-3 text-sm font-semibold">+ Add Language</button>
+      <button id="btn-clear-data" type="button" class="btn-danger mx-auto mt-3 flex w-full max-w-lg items-center justify-center py-3 text-sm">Clear All Data</button>
+      <p id="home-empty" class="mx-auto mt-8 hidden max-w-lg text-center text-sm" style="color:var(--muted)">No languages yet.</p>
+    </div>
+  </section>
 
-    <!-- Game -->
-    <section id="screen-game" class="hidden space-y-8">
-      <header class="flex items-baseline justify-between gap-4 border-b border-zinc-700 pb-3">
-        <h1 id="game-title" class="text-xl font-bold text-white"></h1>
-        <span id="game-score" class="text-xl font-bold text-emerald-400"></span>
-      </header>
+  <!-- Language hub: stats + mode picker -->
+  <section id="screen-lang-hub" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-hub-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <span id="hub-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg">
+        <h1 id="hub-title" class="text-xl font-semibold">Spanish</h1>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="card p-4"><p class="text-xs" style="color:var(--muted)">Total Score</p><p id="hub-score" class="hub-stat">0</p></div>
+          <div class="card p-4"><p class="text-xs" style="color:var(--muted)">Streak</p><p id="hub-streak" class="hub-stat">0</p></div>
+        </div>
+        <div class="card mt-4 p-4">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-semibold" style="color:var(--muted)">Points</p>
+            <select id="chart-range" class="select-field rounded-full border py-1 pl-2 text-xs" style="border-color:var(--border)">
+              <option value="7" selected>7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">1 month</option>
+              <option value="90">3 months</option>
+            </select>
+          </div>
+          <div class="chart-wrap mt-2">
+            <canvas id="hub-chart" class="w-full" height="140"></canvas>
+          </div>
+        </div>
+        <p id="hub-coming-soon" class="hub-coming-soon hidden">Sentence practice isn't available for this language yet. Foundations still work.</p>
+        <div class="hub-grid">
+          <button id="btn-mode-foundations" type="button" class="hub-tile hub-tile-feature">
+            <span class="hub-tile-icon" aria-hidden="true">▣</span>
+            <span class="hub-tile-label">Foundations</span>
+            <span class="hub-tile-desc">Grammar & conjugation reference</span>
+          </button>
+          <button id="btn-mode-sentences" type="button" class="hub-tile">
+            <span class="hub-tile-icon" aria-hidden="true">✎</span>
+            <span class="hub-tile-label">Sentences</span>
+            <span class="hub-tile-desc">Fill-in-the-blank practice</span>
+          </button>
+          <button id="btn-mode-articles" type="button" class="hub-tile">
+            <span class="hub-tile-icon" aria-hidden="true">¶</span>
+            <span class="hub-tile-label">Articles</span>
+            <span class="hub-tile-desc">Longer reading excerpts</span>
+          </button>
+          <button id="btn-mode-flashcards" type="button" class="hub-tile">
+            <span class="hub-tile-icon" aria-hidden="true">▤</span>
+            <span class="hub-tile-label">Flashcards</span>
+            <span class="hub-tile-desc">Your vocabulary sets</span>
+          </button>
+          <button id="btn-mode-saved" type="button" class="hub-tile">
+            <span class="hub-tile-icon" aria-hidden="true">★</span>
+            <span class="hub-tile-label">Saved</span>
+            <span class="hub-tile-desc">Bookmarked & reported</span>
+          </button>
+          <button id="btn-mode-revisit" type="button" class="hub-tile hub-tile-wide">
+            <span class="hub-tile-icon" aria-hidden="true">↻</span>
+            <span class="hub-tile-body">
+              <span class="hub-tile-label">Revisit</span>
+              <span id="revisit-due-desc" class="hub-tile-desc">Sentences you missed or need again</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
 
-      <p id="game-sentence" class="text-2xl leading-relaxed tracking-wide"></p>
-      <p id="game-translation" class="text-lg text-zinc-300 underline decoration-zinc-600 underline-offset-4"></p>
+  <section id="screen-flashcard-edit" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-edit-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold truncate px-2" id="edit-set-heading">Edit Set</h2>
+      <span id="edit-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg space-y-4">
+        <div class="card p-4">
+          <label class="text-xs font-semibold" style="color:var(--muted)">Set name</label>
+          <input id="edit-set-name" type="text" maxlength="60" class="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-semibold" style="border-color:var(--border)" />
+          <button id="btn-download-set" type="button" class="btn-ghost mt-3 w-full py-2 text-sm">Download Set (JSON)</button>
+        </div>
+        <div class="card p-4">
+          <label class="text-xs font-semibold" style="color:var(--muted)">Add word or phrase</label>
+          <div class="mt-2 flex gap-2">
+            <input id="edit-add-word" type="text" placeholder="e.g. sentimiento" class="flex-1 rounded-full border px-3 py-2 text-sm" style="border-color:var(--border)" />
+            <button id="btn-edit-add-word" type="button" class="btn-primary px-4 py-2 text-sm">Add</button>
+          </div>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs font-semibold" style="color:var(--muted)">Words</p>
+          <ul id="edit-word-list" class="mt-2 space-y-1"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
 
-      <input
-        id="game-input"
-        type="text"
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="off"
-        spellcheck="false"
-        class="absolute h-px w-px overflow-hidden opacity-0"
-        aria-label="Answer input"
-      />
+  <section id="screen-articles" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-articles-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Articles</h2>
+      <span id="articles-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg space-y-2">
+        <p class="text-xs" style="color:var(--muted)">Read full Wikipedia articles. Pick one, set word difficulty, then fill in blanks as you go.</p>
+        <div id="article-list" class="space-y-2"></div>
+        <p id="articles-empty" class="hidden mt-6 text-center text-sm" style="color:var(--muted)">No articles yet. Run extract_articles.py for this language.</p>
+      </div>
+    </div>
+  </section>
 
-      <p id="game-footer" class="text-sm text-zinc-500"></p>
-    </section>
+  <section id="screen-flashcards" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-flash-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Flashcard Sets</h2>
+      <span id="flash-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg space-y-3">
+        <input id="flashcard-set-search" type="search" placeholder="Search sets…" class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)" />
+        <p id="flashcard-user-label" class="flashcard-section-label hidden">Your sets</p>
+        <div id="flashcard-user-list" class="space-y-2"></div>
+        <p id="flashcard-user-empty" class="hidden text-sm text-center py-2" style="color:var(--muted)">No custom sets yet. Create one below.</p>
+        <details id="flashcard-builtin-wrap" class="flashcard-builtin-wrap">
+          <summary id="flashcard-builtin-summary">Wikora preset sets</summary>
+          <div class="flashcard-builtin-body">
+            <div id="flashcard-builtin-list" class="space-y-2"></div>
+          </div>
+        </details>
+        <button id="btn-new-set" type="button" class="btn-ghost w-full py-3 text-sm font-semibold">+ New Set</button>
+        <label class="btn-ghost flex w-full cursor-pointer items-center justify-center py-3 text-sm font-semibold">
+          Import Flashcard Set (JSON)
+          <input id="import-set-file" type="file" accept=".json,application/json" class="hidden" />
+        </label>
+      </div>
+    </div>
+  </section>
 
-    <!-- Error -->
-    <section id="screen-error" class="hidden space-y-4">
-      <h1 class="text-2xl font-bold text-red-400">Could not load</h1>
-      <p id="error-message" class="text-zinc-300"></p>
-      <p class="text-sm text-zinc-500">
-        Serve this folder from the repo root, e.g.
-        <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">python -m http.server</code>
-        then open
-        <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">http://localhost:8000/app/</code>
-      </p>
-    </section>
+  <section id="screen-menu" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-back-hub" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <span id="menu-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg">
+        <div class="card p-4">
+          <label class="text-xs font-semibold" style="color:var(--muted)">Questions</label>
+          <select id="question-limit" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)">
+            <option value="0" selected>Infinite</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+
+        <div id="menu-article-pick" class="card hidden p-4">
+          <p class="text-xs font-semibold" style="color:var(--muted)">Article</p>
+          <p id="menu-article-title" class="mt-1 text-lg font-semibold"></p>
+        </div>
+
+        <div id="menu-zipf-section" class="mt-4">
+          <h2 id="menu-presets-heading" class="text-sm font-semibold">Word difficulty</h2>
+          <div id="preset-grid" class="preset-grid mt-2"></div>
+
+          <div id="menu-sentence-filters" class="card mt-4 p-4">
+            <label class="flex cursor-pointer items-start gap-2.5 text-sm">
+              <input id="filter-sentences-enable" type="checkbox" class="mt-0.5" />
+              <span>
+                <span class="font-semibold">Filter sentence length & complexity</span>
+                <span class="mt-0.5 block text-xs" style="color:var(--muted)">Off by default. When on, skips long or vocabulary-heavy sentences so the blank matches your level.</span>
+              </span>
+            </label>
+            <div id="filter-sentences-fields" class="filter-fields disabled mt-4 space-y-5">
+              <div>
+                <label class="text-xs font-semibold" style="color:var(--muted)">Words per sentence: <span id="filter-words-label" class="font-mono">5 – 15</span></label>
+                <div class="range-wrap mt-2">
+                  <div class="range-track"></div>
+                  <div id="filter-words-fill" class="range-fill"></div>
+                  <input id="filter-words-lo" type="range" min="5" max="15" step="1" value="5" />
+                  <input id="filter-words-hi" type="range" min="5" max="15" step="1" value="15" />
+                </div>
+                <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Shorter</span><span>Longer</span></div>
+              </div>
+              <div>
+                <label class="text-xs font-semibold" style="color:var(--muted)">Avg. word commonness (Zipf): <span id="filter-avgzipf-label" class="font-mono">4.9 – 6.5</span></label>
+                <div class="range-wrap mt-2">
+                  <div class="range-track"></div>
+                  <div id="filter-avgzipf-fill" class="range-fill"></div>
+                  <input id="filter-avgzipf-lo" type="range" min="4.9" max="6.5" step="0.1" value="4.9" />
+                  <input id="filter-avgzipf-hi" type="range" min="4.9" max="6.5" step="0.1" value="6.5" />
+                </div>
+                <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Harder mix</span><span>Basic mix</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-6 p-5" id="menu-zipf-custom">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-semibold">Custom Zipf Range</h2>
+              <button id="btn-zipf-help" type="button" class="btn-icon" title="What is Zipf?">?</button>
+            </div>
+            <p id="slider-label" class="mt-1 font-mono text-sm" style="color:var(--muted)">5.5 – 6.0</p>
+            <div class="range-wrap mt-2">
+              <div class="range-track"></div>
+              <div id="range-fill" class="range-fill"></div>
+              <input id="zipf-lo" type="range" min="3" max="8" step="0.1" value="5.5" />
+              <input id="zipf-hi" type="range" min="3" max="8" step="0.1" value="6" />
+            </div>
+            <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Rarer (3)</span><span>Commoner (8)</span></div>
+            <button id="btn-custom-start" type="button" class="btn-primary mt-4 w-full py-3 text-sm">Start Custom</button>
+          </div>
+        </div>
+
+        <div id="menu-flashcard-section" class="mt-4 hidden">
+          <div class="card p-5">
+            <p class="text-xs font-semibold" style="color:var(--muted)">Flashcard Set</p>
+            <p id="flashcard-set-title" class="mt-1 text-lg font-semibold"></p>
+            <label class="mt-4 flex cursor-pointer items-center gap-2.5 text-sm">
+              <input id="flashcard-sequential" type="checkbox" class="mt-0" />
+              <span class="font-medium">Cycle words in order</span>
+            </label>
+            <button id="btn-flashcard-start" type="button" class="btn-primary mt-5 w-full py-3 text-sm">Start Practice</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-game" class="screen">
+    <header id="game-header" class="game-header">
+      <button id="btn-back-menu" type="button" class="btn-ghost btn-game-bar">Exit</button>
+      <div id="game-progress" class="game-progress-wrap hidden">
+        <div class="game-progress-bar"><div id="game-progress-fill" class="game-progress-fill" style="width:0%"></div></div>
+        <span id="game-progress-label" class="game-progress-label">0 / 10</span>
+      </div>
+      <span id="score-pill" class="score-pill pill btn-game-bar">Score: <span id="game-score">0</span></span>
+    </header>
+    <main class="game-stage">
+      <div class="game-stage-inner">
+        <div id="review-banner" class="review-banner hidden">Review</div>
+        <div id="game-badge" class="card game-badge"></div>
+        <div id="article-header" class="card game-article hidden">
+          <p id="article-title" class="text-sm font-semibold"></p>
+          <p id="article-context" class="mt-2"></p>
+        </div>
+        <div class="card game-sentence-card">
+          <p id="sentence-line" class="text-center">
+            <span id="sent-before"></span><span id="blank-slot" class="blank-inline"><span id="hint-part" class="hint-part"></span><input id="blank-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" /></span><span id="sent-after"></span>
+          </p>
+          <p id="game-translation" class="mt-5 text-center text-base italic" style="color:var(--muted)"></p>
+        </div>
+        <div class="game-controls">
+          <button id="btn-play-sentence" type="button" class="btn-ghost btn-game hidden">Play sentence</button>
+          <button id="btn-accents" type="button" class="btn-ghost btn-game">Accents</button>
+          <button id="btn-hint" type="button" class="btn-ghost btn-game">Hint</button>
+          <button id="btn-submit" type="button" class="btn-primary btn-game">Check</button>
+        </div>
+        <p id="game-hint-text" class="game-hint-text">Press Enter To Check · ? For Hint · Highlight Any Word</p>
+      </div>
+    </main>
+    <div class="game-actions">
+      <button id="btn-favorite" type="button" class="btn-ghost btn-game-bar">Save</button>
+      <button id="btn-skip" type="button" class="btn-ghost btn-game-bar">Skip</button>
+      <button id="btn-report" type="button" class="btn-ghost btn-game-bar">Report</button>
+    </div>
+  </section>
+
+  <section id="screen-about" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-about-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <span class="text-sm font-semibold">About</span>
+      <span class="w-16"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <article id="about-content" class="prose-content mx-auto max-w-lg"></article>
+    </div>
+  </section>
+
+  <section id="screen-foundations" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-foundations-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <span id="foundations-flag"></span>
+      <span class="w-16"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <article id="foundations-content" class="prose-content mx-auto max-w-lg"></article>
+    </div>
+  </section>
+
+  <section id="screen-saved" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-saved-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Saved & Reported</h2>
+      <span class="w-16"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg">
+        <div id="saved-lang-wrap" class="hidden">
+          <label class="text-xs font-semibold" style="color:var(--muted)">Language</label>
+          <select id="saved-lang-pick" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)"></select>
+        </div>
+        <div class="saved-tabs mt-4">
+          <button type="button" class="saved-tab active" data-tab="favorites">Saved</button>
+          <button type="button" class="saved-tab" data-tab="reported">Reported</button>
+        </div>
+        <div id="saved-list" class="space-y-2"></div>
+        <p id="saved-empty" class="hidden mt-6 text-center text-sm" style="color:var(--muted)">Nothing here yet.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-error" class="screen items-center justify-center px-6">
+    <div class="card max-w-md p-8 text-center">
+      <h1 class="text-lg font-semibold text-red-600">Something Went Wrong</h1>
+      <p id="error-message" class="mt-2 text-sm" style="color:var(--muted)"></p>
+    </div>
+  </section>
+
+  <div id="modal-add-lang" class="modal modal-backdrop">
+    <div class="modal-panel modal-wide">
+      <div class="flex items-center justify-between"><h3 class="font-semibold">Add Language</h3><button type="button" class="btn-close-x" data-close-modal="modal-add-lang">×</button></div>
+      <input id="add-lang-search" type="search" placeholder="Search languages…" class="blocky-input mt-4 w-full px-3 py-2 text-sm" />
+      <div id="add-lang-grid" class="add-lang-grid"></div>
+    </div>
   </div>
 
-  <script>
-    const WORD_PATTERN = /\b[\wáéíóúüñÁÉÍÓÚÜÑàèéìòùäöüß'-]+\b/gu;
-    const TARGET_COUNT = 20000;
+  <div id="modal-settings" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="settings-modal-head">
+        <h3 class="settings-modal-title">Settings</h3>
+        <button type="button" class="btn-close-x btn-close-plain" data-close-modal="modal-settings" aria-label="Close">×</button>
+      </div>
+      <div class="mt-4">
+        <label class="flex items-center justify-between text-sm"><span class="font-semibold">Review Interval</span>
+          <input id="review-interval" type="number" min="3" max="30" value="10" class="w-16 rounded-full border px-3 py-1 text-center text-sm" style="border-color:var(--border)" />
+        </label>
+      </div>
+      <div class="mt-4">
+        <label class="flex cursor-pointer items-center gap-2.5 text-sm">
+          <input id="setting-tts" type="checkbox" checked />
+          <span class="font-semibold">Speech & sound feedback in practice</span>
+        </label>
+        <p class="mt-1 pl-7 text-xs" style="color:var(--muted)">Plays tones on correct/wrong, reads the sentence after a correct answer, and lets you replay audio from the play button or highlighted words.</p>
+      </div>
+    </div>
+  </div>
 
-    const DIFFICULTY_LEVELS = [
-      { name: "Beginner", lo: 5.0, hi: 5.5 },
-      { name: "Easy", lo: 4.5, hi: 5.0 },
-      { name: "Medium", lo: 4.0, hi: 4.5 },
-      { name: "Challenging", lo: 3.5, hi: 4.0 },
-      { name: "Hard", lo: 3.0, hi: 3.5 },
-      { name: "Expert", lo: 2.5, hi: 3.0 },
-    ];
+  <div id="modal-zipf-help" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="flex items-center justify-between"><h3 class="font-semibold">What Is Zipf?</h3><button type="button" class="btn-close-x" data-close-modal="modal-zipf-help">×</button></div>
+      <p class="mt-3 text-sm leading-relaxed" style="color:var(--muted)">Zipf score measures how often a word appears in real text. A higher score (around 6 to 8) means the word is very common and usually easier to recognize. A lower score (around 3 to 4) means the word is rare and harder. Drag the range to pick how common the blanked words should be. Narrow ranges keep difficulty more consistent.</p>
+    </div>
+  </div>
 
-    const state = {
-      lang: "es",
-      zipfDict: {},
-      sentences: [],
-      points: 0,
-      level: null,
-      puzzle: null,
-      translation: "",
-      typed: "",
-      hintChars: 0,
-      revealed: false,
-      translationCache: {},
-    };
+  <div id="modal-accents" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="flex items-center justify-between"><h3 class="font-semibold">Accents</h3><button type="button" class="btn-close-x" data-close-modal="modal-accents">×</button></div>
+      <div id="accent-grid" class="accent-grid mt-4"></div>
+      <p class="mt-4 text-sm" style="color:var(--muted)">You can hold down a letter to type common accents.</p>
+      <details class="accent-details mt-4">
+        <summary>Slash commands</summary>
+        <div id="command-card-grid" class="accent-cmd-grid mt-3"></div>
+      </details>
+    </div>
+  </div>
 
-    function showScreen(id) {
-      $("#screen-loading, #screen-menu, #screen-game, #screen-error").addClass("hidden");
-      $(`#${id}`).removeClass("hidden");
-    }
+  <div id="modal-flashcard-set" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="flex justify-end"><button type="button" class="btn-close-x" data-close-modal="modal-flashcard-set" aria-label="Close">×</button></div>
+      <h3 id="flashcard-set-modal-title" class="font-semibold">New Set</h3>
+      <input id="flashcard-set-name-input" type="text" maxlength="60" placeholder="Set name" class="mt-3 w-full rounded-lg border px-3 py-2.5 text-sm" style="border-color:var(--border)" />
+      <button id="btn-flashcard-set-save" type="button" class="btn-primary mt-4 w-full py-2.5 text-sm">Save</button>
+    </div>
+  </div>
 
-    function normalizeWord(s) {
-      return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-    }
+  <div id="modal-report" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="font-semibold">Report Sentence?</h3>
+        <button type="button" class="btn-close-x btn-close-plain" data-close-modal="modal-report" aria-label="Close">×</button>
+      </div>
+      <p class="mt-2 text-sm" style="color:var(--muted)">This sentence will be hidden from future practice. You can undo this later from Saved & Reported Sentences.</p>
+      <div class="mt-4 flex gap-2">
+        <button type="button" class="btn-ghost flex-1 py-2.5 text-sm" data-close-modal="modal-report">Cancel</button>
+        <button id="btn-confirm-report" type="button" class="btn-danger flex-1 py-2.5 text-sm">Report</button>
+      </div>
+    </div>
+  </div>
 
-    function wordsMatch(guess, answer) {
-      return normalizeWord(guess) === normalizeWord(answer);
-    }
+  <div id="modal-add-flashcard" class="modal modal-backdrop">
+    <div class="modal-panel">
+      <div class="flex items-center justify-between"><h3 class="font-semibold">Add To Set</h3><button type="button" class="btn-close-x" data-close-modal="modal-add-flashcard">×</button></div>
+      <p id="flashcard-word-label" class="mt-2 text-sm font-medium"></p>
+      <select id="flashcard-set-pick" class="mt-3 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)"></select>
+      <button id="btn-create-set-inline" type="button" class="btn-ghost mt-2 w-full py-2 text-xs">+ Create New Set</button>
+      <button id="btn-confirm-add-word" type="button" class="btn-primary mt-4 w-full py-2.5 text-sm">Add Word</button>
+    </div>
+  </div>
 
-    function formatRange(lo, hi) {
-      return `zipf ${lo.toFixed(1)} – ${hi.toFixed(1)}`;
-    }
+  <div id="lookup-overlay"></div>
+  <aside id="lookup-panel">
+    <div id="lookup-resizer" title="Drag to resize"></div>
+    <div class="lookup-head">
+      <div class="lookup-title-row min-w-0 flex-1">
+        <h3 id="lookup-title" class="font-semibold truncate">Analyze</h3>
+        <button id="btn-play-lookup-word" type="button" class="btn-audio-inline" title="Play word" aria-label="Play word">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+      </div>
+      <button id="btn-close-lookup" type="button" class="btn-close-x">×</button>
+    </div>
+    <div class="lookup-body">
+      <p id="lookup-translation" class="text-sm font-semibold shrink-0"></p>
+      <div id="lookup-wiki-scroll"><div id="lookup-wiki" class="wiki-content"></div></div>
+      <a id="lookup-wiki-link" href="#" target="_blank" rel="noopener" class="text-xs underline shrink-0" style="color:var(--primary)">Open full Wiktionary page</a>
+      <div id="lookup-chat-area">
+        <div id="lookup-chat-messages"></div>
+        <input id="chat-input" type="text" placeholder="Ask about this word…" class="blocky-input mt-2 w-full shrink-0 px-3 py-2 text-sm" />
+      </div>
+    </div>
+  </aside>
 
-    function tokenize(sentence) {
-      return sentence.match(WORD_PATTERN) ?? [];
-    }
+  <div id="word-tooltip">
+    <button type="button" id="btn-analyze-word" class="tooltip-action">Analyze word</button>
+    <button type="button" id="btn-add-flashcard" class="tooltip-action">Add to flashcard set…</button>
+  </div>
+  <div id="chart-tooltip"></div>
+  <div id="toast" class="toast hidden"></div>
 
-    function sentenceOnly(line) {
-      if (line.startsWith("#")) return null;
-      return line.split("\t", 1)[0].trim();
-    }
-
-    function zipfFrequency(word) {
-      const lower = word.toLowerCase();
-      return Object.prototype.hasOwnProperty.call(state.zipfDict, lower) ? state.zipfDict[lower] : 0;
-    }
-
-    function zipfInRange(word, lo, hi) {
-      const z = zipfFrequency(word);
-      return z >= lo && z < hi;
-    }
-
-    function eligibleBlankIndices(tokens, lo, hi) {
-      const indices = [];
-      for (let i = 0; i < tokens.length; i++) {
-        const tok = tokens[i];
-        if (tok.length < 3 || !/^\p{L}+$/u.test(tok)) continue;
-        if (zipfInRange(tok, lo, hi)) indices.push(i);
-      }
-      return indices;
-    }
-
-    function randomSentence() {
-      return state.sentences[Math.floor(Math.random() * state.sentences.length)];
-    }
-
-    function buildPuzzle(lo, hi, maxTries = 120) {
-      for (let i = 0; i < maxTries; i++) {
-        const sentence = randomSentence();
-        const tokens = tokenize(sentence);
-        if (tokens.length < 5) continue;
-        const candidates = eligibleBlankIndices(tokens, lo, hi);
-        if (candidates.length === 0) continue;
-        const blankIndex = candidates[Math.floor(Math.random() * candidates.length)];
-        return { sentence, tokens, blankIndex, answer: tokens[blankIndex] };
-      }
-      return null;
-    }
-
-    function combinedGuess(answer, typed, hintChars) {
-      return answer.slice(0, hintChars) + typed;
-    }
-
-    function renderBlankHtml(tokens, blankIndex, answer, typed, hintChars, revealed) {
-      return tokens
-        .map((tok, i) => {
-          if (i !== blankIndex) {
-            return `<span class="text-zinc-100">${$("<span>").text(tok).html()}</span>`;
-          }
-          if (revealed) {
-            return `<span class="font-bold text-red-500">${$("<span>").text(answer).html()}</span>`;
-          }
-          const combined = combinedGuess(answer, typed, hintChars);
-          const target = normalizeWord(answer);
-          const current = normalizeWord(combined);
-          const match = combined.length > 0 && (current === target || target.startsWith(current));
-          const color = match ? "text-emerald-400" : "text-red-500";
-          const underscores = "_".repeat(Math.max(0, answer.length - combined.length));
-          const safeCombined = $("<span>").text(combined).html();
-          const safeUnderscores = $("<span>").text(underscores).html();
-          return `<span class="font-bold ${color}">${safeCombined}</span><span class="text-zinc-600">${safeUnderscores}</span>`;
-        })
-        .join('<span class="text-zinc-600"> </span>');
-    }
-
-    function setLoadProgress(pct, msg) {
-      $("#load-bar").css("width", `${Math.min(100, pct)}%`);
-      $("#load-status").text(msg);
-    }
-
-    function readLangFromText(text) {
-      const match = text.slice(0, 32).match(/^# lang=([a-z]{2})/);
-      return match ? match[1] : "es";
-    }
-
-    function streamSentences(url, maxStore) {
-      return fetch(url).then((res) => {
-        if (!res.ok) throw new Error(`Could not load ${url}: HTTP ${res.status}`);
-        const total = Number(res.headers.get("Content-Length")) || 0;
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let lines = [];
-        let totalLines = 0;
-        let bytesRead = 0;
-        let lang = null;
-
-        function processLine(raw) {
-          const trimmed = raw.trim();
-          if (!lang && trimmed.startsWith("#")) {
-            lang = readLangFromText(trimmed + "\n");
-            return;
-          }
-          const line = sentenceOnly(trimmed);
-          if (!line) return;
-          totalLines += 1;
-          if (lines.length < maxStore) {
-            lines.push(line);
-          } else {
-            const j = Math.floor(Math.random() * totalLines);
-            if (j < maxStore) lines[j] = line;
-          }
-        }
-
-        function pump() {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              if (buffer.trim()) processLine(buffer);
-              return { lines, lang: lang || "es" };
-            }
-            bytesRead += value.byteLength;
-            if (total > 0) {
-              setLoadProgress(20 + (bytesRead / total) * 75, `Sampling sentences… ${Math.round((bytesRead / total) * 100)}%`);
-            } else {
-              setLoadProgress(50, `Sampling sentences… ${lines.length.toLocaleString()} kept`);
-            }
-            buffer += decoder.decode(value, { stream: true });
-            let idx;
-            while ((idx = buffer.indexOf("\n")) >= 0) {
-              processLine(buffer.slice(0, idx));
-              buffer = buffer.slice(idx + 1);
-            }
-            return pump();
-          });
-        }
-
-        return pump();
-      });
-    }
-
-    function loadZipf(lang) {
-      return $.getJSON(`../${lang}_word_zipf.json`);
-    }
-
-    function translateSentence(text) {
-      const key = `${state.lang}:${text}`;
-      if (state.translationCache[key]) {
-        return $.Deferred().resolve(state.translationCache[key]).promise();
-      }
-      return $.ajax({
-        url: "https://translate.googleapis.com/translate_a/single",
-        data: { client: "gtx", sl: state.lang, tl: "en", dt: "t", q: text },
-        dataType: "json",
-      }).then((data) => {
-        const result = data[0][0][0];
-        state.translationCache[key] = result;
-        return result;
-      });
-    }
-
-    function renderMenu() {
-      const $list = $("#level-list").empty();
-      $.each(DIFFICULTY_LEVELS, (i, { name, lo, hi }) => {
-        $("<li>")
-          .append(
-            $("<button>")
-              .addClass(
-                "flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-800"
-              )
-              .attr("data-level", i)
-              .append(
-                $("<span>").addClass("font-bold text-cyan-400").text(String(i + 1)),
-                $("<span>").addClass("w-28 font-medium text-white").text(name),
-                $("<span>").addClass("text-sm text-zinc-500").text(`(${formatRange(lo, hi)})`)
-              )
-          )
-          .appendTo($list);
-      });
-    }
-
-    function refreshGame() {
-      const { puzzle, typed, hintChars, revealed, points, level } = state;
-      $("#game-title").text(`Language Practice (${level.name})`);
-      $("#game-score").text(`Score: ${points}`);
-      $("#game-sentence").html(
-        renderBlankHtml(puzzle.tokens, puzzle.blankIndex, puzzle.answer, typed, hintChars, revealed)
-      );
-      $("#game-translation").text(state.translation);
-      $("#game-footer").text(
-        revealed ? "Enter — next question" : "? hint · Enter show answer · Backspace edit"
-      );
-    }
-
-    function tryAutoCorrect() {
-      const { puzzle, typed, hintChars } = state;
-      const guess = combinedGuess(puzzle.answer, typed, hintChars);
-      if (guess.length === puzzle.answer.length && wordsMatch(guess, puzzle.answer)) {
-        state.points += 1;
-        nextQuestion();
-      }
-    }
-
-    function nextQuestion() {
-      state.typed = "";
-      state.hintChars = 0;
-      state.revealed = false;
-      startRound();
-    }
-
-    function startRound() {
-      const { lo, hi } = state.level;
-      const puzzle = buildPuzzle(lo, hi);
-      if (!puzzle) {
-        alert("No matching sentences found. Try another difficulty.");
-        showScreen("screen-menu");
-        return;
-      }
-      state.puzzle = puzzle;
-      state.translation = "Translating…";
-      refreshGame();
-      $("#game-input").val("").focus();
-
-      translateSentence(puzzle.sentence)
-        .then((t) => {
-          state.translation = t;
-          refreshGame();
-        })
-        .fail(() => {
-          state.translation = "(translation unavailable)";
-          refreshGame();
-        });
-    }
-
-    function startGame(levelIndex) {
-      state.level = DIFFICULTY_LEVELS[levelIndex];
-      state.points = 0;
-      state.typed = "";
-      state.hintChars = 0;
-      state.revealed = false;
-      showScreen("screen-game");
-      startRound();
-    }
-
-    function handleGameKey(e) {
-      if ($("#screen-game").hasClass("hidden")) return;
-
-      const { puzzle, revealed } = state;
-
-      if (e.key === "Enter") {
-        e.preventDefault();
-        if (revealed) {
-          nextQuestion();
-        } else {
-          state.revealed = true;
-          refreshGame();
-        }
-        return;
-      }
-
-      if (revealed) return;
-
-      if (e.key === "Backspace") {
-        e.preventDefault();
-        if (state.typed.length > 0) {
-          state.typed = state.typed.slice(0, -1);
-        } else if (state.hintChars > 0) {
-          state.hintChars -= 1;
-        }
-        refreshGame();
-        return;
-      }
-
-      if (e.key === "?") {
-        e.preventDefault();
-        if (state.hintChars < puzzle.answer.length) {
-          state.hintChars += 1;
-          refreshGame();
-          tryAutoCorrect();
-        }
-        return;
-      }
-
-      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const remaining = puzzle.answer.length - state.hintChars;
-        if (state.typed.length < remaining) {
-          e.preventDefault();
-          state.typed += e.key;
-          refreshGame();
-          tryAutoCorrect();
-        }
-      }
-    }
-
-    function loadAll() {
-      setLoadProgress(0, "Sampling sentences (first load may take a minute)…");
-
-      streamSentences("../sentences.txt", TARGET_COUNT)
-        .then(({ lines, lang }) => {
-          if (!lines.length) throw new Error("No sentences loaded");
-          state.lang = lang;
-          state.sentences = lines;
-          setLoadProgress(95, `Loading ${lang} word frequencies…`);
-          return loadZipf(lang).then((dict) => {
-            state.zipfDict = dict;
-            setLoadProgress(100, `Ready — ${lines.length.toLocaleString()} sentences sampled`);
-          });
-        })
-        .then(() => {
-          renderMenu();
-          showScreen("screen-menu");
-        })
-        .catch((err) => {
-          $("#error-message").text(err && err.message ? err.message : String(err));
-          showScreen("screen-error");
-        });
-    }
-
-    $(function () {
-      $("#level-list").on("click", "button[data-level]", function () {
-        startGame(Number($(this).attr("data-level")));
-      });
-
-      $(document).on("keydown", handleGameKey);
-
-      $("#screen-game").on("click", () => {
-        $("#game-input").focus();
-      });
-
-      loadAll();
-    });
-  </script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>

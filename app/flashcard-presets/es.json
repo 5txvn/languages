@@ -1,0 +1,552 @@
+{
+  "version": 1,
+  "langCode": "es",
+  "builtin": true,
+  "sets": [
+    {
+      "id": "builtin-colors",
+      "name": "Colors",
+      "words": [
+        "rojo",
+        "azul",
+        "verde",
+        "amarillo",
+        "negro",
+        "blanco",
+        "naranja",
+        "morado",
+        "rosa",
+        "marrón",
+        "gris",
+        "dorado"
+      ]
+    },
+    {
+      "id": "builtin-animals",
+      "name": "Animals",
+      "words": [
+        "perro",
+        "gato",
+        "pájaro",
+        "pez",
+        "caballo",
+        "vaca",
+        "cerdo",
+        "oveja",
+        "pollo",
+        "ratón",
+        "león",
+        "elefante",
+        "oso",
+        "lobo",
+        "conejo"
+      ]
+    },
+    {
+      "id": "builtin-numbers",
+      "name": "Numbers 1–12",
+      "words": [
+        "uno",
+        "dos",
+        "tres",
+        "cuatro",
+        "cinco",
+        "seis",
+        "siete",
+        "ocho",
+        "nueve",
+        "diez",
+        "once",
+        "doce"
+      ]
+    },
+    {
+      "id": "builtin-days",
+      "name": "Days of the Week",
+      "words": [
+        "lunes",
+        "martes",
+        "miércoles",
+        "jueves",
+        "viernes",
+        "sábado",
+        "domingo"
+      ]
+    },
+    {
+      "id": "builtin-months",
+      "name": "Months",
+      "words": [
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre"
+      ]
+    },
+    {
+      "id": "builtin-family",
+      "name": "Family",
+      "words": [
+        "madre",
+        "padre",
+        "padres",
+        "hijo",
+        "hija",
+        "hermano",
+        "hermana",
+        "abuela",
+        "abuelo",
+        "esposo",
+        "esposa",
+        "niño",
+        "bebé",
+        "tío",
+        "tía"
+      ]
+    },
+    {
+      "id": "builtin-body",
+      "name": "Body Parts",
+      "words": [
+        "cabeza",
+        "cara",
+        "ojo",
+        "oreja",
+        "nariz",
+        "boca",
+        "diente",
+        "cuello",
+        "mano",
+        "dedo",
+        "brazo",
+        "pierna",
+        "pie",
+        "corazón",
+        "espalda"
+      ]
+    },
+    {
+      "id": "builtin-food",
+      "name": "Food",
+      "words": [
+        "pan",
+        "arroz",
+        "carne",
+        "pescado",
+        "huevo",
+        "queso",
+        "mantequilla",
+        "sopa",
+        "ensalada",
+        "pasta",
+        "patata",
+        "tomate",
+        "cebolla",
+        "ajo",
+        "sal"
+      ]
+    },
+    {
+      "id": "builtin-drinks",
+      "name": "Drinks",
+      "words": [
+        "agua",
+        "leche",
+        "café",
+        "té",
+        "zumo",
+        "vino",
+        "cerveza",
+        "refresco",
+        "limonada",
+        "chocolate caliente"
+      ]
+    },
+    {
+      "id": "builtin-verbs",
+      "name": "Common Verbs",
+      "words": [
+        "ser",
+        "estar",
+        "tener",
+        "ir",
+        "venir",
+        "ver",
+        "saber",
+        "querer",
+        "poder",
+        "decir",
+        "hacer",
+        "comer",
+        "beber",
+        "dormir",
+        "trabajar",
+        "vivir",
+        "amar",
+        "pensar",
+        "hablar",
+        "leer",
+        "escribir"
+      ]
+    },
+    {
+      "id": "builtin-greetings",
+      "name": "Greetings & Phrases",
+      "words": [
+        "hola",
+        "adiós",
+        "por favor",
+        "gracias",
+        "lo siento",
+        "sí",
+        "no",
+        "buenos días",
+        "buenas noches",
+        "¿cómo estás?",
+        "perdón",
+        "de nada"
+      ]
+    },
+    {
+      "id": "builtin-weather",
+      "name": "Weather",
+      "words": [
+        "sol",
+        "lluvia",
+        "nieve",
+        "viento",
+        "nube",
+        "tormenta",
+        "calor",
+        "frío",
+        "cálido",
+        "fresco",
+        "tiempo",
+        "cielo"
+      ]
+    },
+    {
+      "id": "builtin-clothing",
+      "name": "Clothing",
+      "words": [
+        "camisa",
+        "pantalones",
+        "vestido",
+        "falda",
+        "chaqueta",
+        "abrigo",
+        "zapatos",
+        "calcetines",
+        "sombrero",
+        "guantes",
+        "bufanda",
+        "cinturón"
+      ]
+    },
+    {
+      "id": "builtin-house",
+      "name": "House & Furniture",
+      "words": [
+        "casa",
+        "habitación",
+        "cocina",
+        "baño",
+        "dormitorio",
+        "puerta",
+        "ventana",
+        "mesa",
+        "silla",
+        "cama",
+        "sofá",
+        "lámpara",
+        "suelo",
+        "pared",
+        "techo"
+      ]
+    },
+    {
+      "id": "builtin-transport",
+      "name": "Transportation",
+      "words": [
+        "coche",
+        "autobús",
+        "tren",
+        "avión",
+        "bicicleta",
+        "motocicleta",
+        "barco",
+        "barco",
+        "taxi",
+        "metro",
+        "carretera",
+        "calle"
+      ]
+    },
+    {
+      "id": "builtin-professions",
+      "name": "Professions",
+      "words": [
+        "médico",
+        "enfermera",
+        "profesor",
+        "estudiante",
+        "ingeniero",
+        "abogado",
+        "chef",
+        "granjero",
+        "artista",
+        "escritor",
+        "policía",
+        "bombero"
+      ]
+    },
+    {
+      "id": "builtin-adjectives",
+      "name": "Common Adjectives",
+      "words": [
+        "grande",
+        "pequeño",
+        "bueno",
+        "malo",
+        "nuevo",
+        "viejo",
+        "joven",
+        "feliz",
+        "triste",
+        "hermoso",
+        "feo",
+        "fácil",
+        "difícil",
+        "rápido",
+        "lento"
+      ]
+    },
+    {
+      "id": "builtin-time",
+      "name": "Time",
+      "words": [
+        "hoy",
+        "mañana",
+        "ayer",
+        "ahora",
+        "después",
+        "temprano",
+        "tarde",
+        "mañana",
+        "tarde",
+        "noche",
+        "noche",
+        "hora",
+        "minuto",
+        "semana",
+        "año"
+      ]
+    },
+    {
+      "id": "builtin-school",
+      "name": "School",
+      "words": [
+        "escuela",
+        "clase",
+        "profesor",
+        "alumno",
+        "libro",
+        "bolígrafo",
+        "lápiz",
+        "papel",
+        "deberes",
+        "examen",
+        "lección",
+        "universidad"
+      ]
+    },
+    {
+      "id": "builtin-nature",
+      "name": "Nature & Plants",
+      "words": [
+        "árbol",
+        "flor",
+        "hierba",
+        "bosque",
+        "montaña",
+        "río",
+        "lago",
+        "mar",
+        "playa",
+        "isla",
+        "roca",
+        "hoja"
+      ]
+    },
+    {
+      "id": "builtin-emotions",
+      "name": "Emotions",
+      "words": [
+        "amor",
+        "miedo",
+        "ira",
+        "alegría",
+        "esperanza",
+        "preocupación",
+        "sorpresa",
+        "vergüenza",
+        "orgullo",
+        "soledad",
+        "paz",
+        "estrés"
+      ]
+    },
+    {
+      "id": "builtin-places",
+      "name": "Places in Town",
+      "words": [
+        "ciudad",
+        "pueblo",
+        "aldea",
+        "parque",
+        "hospital",
+        "farmacia",
+        "banco",
+        "tienda",
+        "mercado",
+        "restaurante",
+        "hotel",
+        "biblioteca",
+        "museo",
+        "iglesia"
+      ]
+    },
+    {
+      "id": "builtin-sports",
+      "name": "Sports",
+      "words": [
+        "fútbol",
+        "baloncesto",
+        "tenis",
+        "natación",
+        "correr",
+        "ciclismo",
+        "golf",
+        "béisbol",
+        "voleibol",
+        "esquí",
+        "boxeo",
+        "equipo"
+      ]
+    },
+    {
+      "id": "builtin-questions",
+      "name": "Question Words",
+      "words": [
+        "quién",
+        "qué",
+        "dónde",
+        "cuándo",
+        "por qué",
+        "cómo",
+        "cuál",
+        "cuánto",
+        "cuántos"
+      ]
+    },
+    {
+      "id": "builtin-directions",
+      "name": "Directions",
+      "words": [
+        "izquierda",
+        "derecha",
+        "recto",
+        "norte",
+        "sur",
+        "este",
+        "oeste",
+        "arriba",
+        "abajo",
+        "cerca",
+        "lejos",
+        "aquí",
+        "allí"
+      ]
+    },
+    {
+      "id": "builtin-fruits",
+      "name": "Fruits & Vegetables",
+      "words": [
+        "manzana",
+        "plátano",
+        "naranja",
+        "uva",
+        "fresa",
+        "zanahoria",
+        "pepino",
+        "pimiento",
+        "lechuga",
+        "champiñón",
+        "limón",
+        "pera"
+      ]
+    },
+    {
+      "id": "builtin-technology",
+      "name": "Technology",
+      "words": [
+        "ordenador",
+        "teléfono",
+        "internet",
+        "correo electrónico",
+        "sitio web",
+        "pantalla",
+        "teclado",
+        "cámara",
+        "batería",
+        "software",
+        "contraseña",
+        "archivo"
+      ]
+    },
+    {
+      "id": "builtin-health",
+      "name": "Health",
+      "words": [
+        "salud",
+        "enfermedad",
+        "dolor",
+        "medicina",
+        "hospital",
+        "médico",
+        "fiebre",
+        "resfriado",
+        "tos",
+        "alergia",
+        "ejercicio",
+        "descanso"
+      ]
+    },
+    {
+      "id": "builtin-kitchen",
+      "name": "Kitchen",
+      "words": [
+        "cuchillo",
+        "tenedor",
+        "cuchara",
+        "plato",
+        "taza",
+        "vaso",
+        "bol",
+        "olla",
+        "sartén",
+        "horno",
+        "nevera",
+        "microondas"
+      ]
+    }
+  ]
+}

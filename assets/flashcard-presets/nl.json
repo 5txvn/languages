@@ -1,0 +1,551 @@
+{
+  "version": 1,
+  "langCode": "nl",
+  "builtin": true,
+  "sets": [
+    {
+      "id": "builtin-colors",
+      "name": "Colors",
+      "words": [
+        "rood",
+        "blauw",
+        "groen",
+        "geel",
+        "zwart",
+        "wit",
+        "oranje",
+        "paars",
+        "roze",
+        "bruin",
+        "grijs",
+        "goud"
+      ]
+    },
+    {
+      "id": "builtin-animals",
+      "name": "Animals",
+      "words": [
+        "hond",
+        "kat",
+        "vogel",
+        "vis",
+        "paard",
+        "koe",
+        "varken",
+        "schaap",
+        "kip",
+        "muis",
+        "leeuw",
+        "olifant",
+        "beer",
+        "wolf",
+        "konijn"
+      ]
+    },
+    {
+      "id": "builtin-numbers",
+      "name": "Numbers 1–12",
+      "words": [
+        "een",
+        "twee",
+        "drie",
+        "vier",
+        "vijf",
+        "zes",
+        "zeven",
+        "acht",
+        "negen",
+        "tien",
+        "elf",
+        "twaalf"
+      ]
+    },
+    {
+      "id": "builtin-days",
+      "name": "Days of the Week",
+      "words": [
+        "maandag",
+        "dinsdag",
+        "woensdag",
+        "donderdag",
+        "vrijdag",
+        "zaterdag",
+        "zondag"
+      ]
+    },
+    {
+      "id": "builtin-months",
+      "name": "Months",
+      "words": [
+        "januari",
+        "februari",
+        "maart",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "augustus",
+        "september",
+        "oktober",
+        "november",
+        "december"
+      ]
+    },
+    {
+      "id": "builtin-family",
+      "name": "Family",
+      "words": [
+        "moeder",
+        "vader",
+        "ouders",
+        "zoon",
+        "dochter",
+        "broer",
+        "zus",
+        "grootmoeder",
+        "grootvader",
+        "echtgenoot",
+        "echtgenote",
+        "kind",
+        "baby",
+        "oom",
+        "tante"
+      ]
+    },
+    {
+      "id": "builtin-body",
+      "name": "Body Parts",
+      "words": [
+        "hoofd",
+        "gezicht",
+        "oog",
+        "oor",
+        "neus",
+        "mond",
+        "tand",
+        "nek",
+        "hand",
+        "vinger",
+        "arm",
+        "been",
+        "voet",
+        "hart",
+        "rug"
+      ]
+    },
+    {
+      "id": "builtin-food",
+      "name": "Food",
+      "words": [
+        "brood",
+        "rijst",
+        "vlees",
+        "vis",
+        "ei",
+        "kaas",
+        "boter",
+        "soep",
+        "salade",
+        "pasta",
+        "aardappel",
+        "tomaat",
+        "ui",
+        "knoflook",
+        "zout"
+      ]
+    },
+    {
+      "id": "builtin-drinks",
+      "name": "Drinks",
+      "words": [
+        "water",
+        "melk",
+        "koffie",
+        "thee",
+        "sap",
+        "wijn",
+        "bier",
+        "frisdrank",
+        "limonade",
+        "warme chocolademelk"
+      ]
+    },
+    {
+      "id": "builtin-verbs",
+      "name": "Common Verbs",
+      "words": [
+        "zijn",
+        "hebben",
+        "gaan",
+        "komen",
+        "zien",
+        "weten",
+        "willen",
+        "kunnen",
+        "zeggen",
+        "maken",
+        "eten",
+        "drinken",
+        "slapen",
+        "werken",
+        "leven",
+        "houden van",
+        "denken",
+        "spreken",
+        "lezen",
+        "schrijven"
+      ]
+    },
+    {
+      "id": "builtin-greetings",
+      "name": "Greetings & Phrases",
+      "words": [
+        "hallo",
+        "tot ziens",
+        "alsjeblieft",
+        "dank je",
+        "sorry",
+        "ja",
+        "nee",
+        "goedemorgen",
+        "goedenacht",
+        "hoe gaat het",
+        "pardon",
+        "graag gedaan"
+      ]
+    },
+    {
+      "id": "builtin-weather",
+      "name": "Weather",
+      "words": [
+        "zon",
+        "regen",
+        "sneeuw",
+        "wind",
+        "wolk",
+        "storm",
+        "heet",
+        "koud",
+        "warm",
+        "koel",
+        "weer",
+        "lucht"
+      ]
+    },
+    {
+      "id": "builtin-clothing",
+      "name": "Clothing",
+      "words": [
+        "shirt",
+        "broek",
+        "jurk",
+        "rok",
+        "jas",
+        "jas",
+        "schoenen",
+        "sokken",
+        "hoed",
+        "handschoenen",
+        "sjaal",
+        "riem"
+      ]
+    },
+    {
+      "id": "builtin-house",
+      "name": "House & Furniture",
+      "words": [
+        "huis",
+        "kamer",
+        "keuken",
+        "badkamer",
+        "slaapkamer",
+        "deur",
+        "raam",
+        "tafel",
+        "stoel",
+        "bed",
+        "bank",
+        "lamp",
+        "vloer",
+        "muur",
+        "dak"
+      ]
+    },
+    {
+      "id": "builtin-transport",
+      "name": "Transportation",
+      "words": [
+        "auto",
+        "bus",
+        "trein",
+        "vliegtuig",
+        "fiets",
+        "motorfiets",
+        "boot",
+        "schip",
+        "taxi",
+        "metro",
+        "weg",
+        "straat"
+      ]
+    },
+    {
+      "id": "builtin-professions",
+      "name": "Professions",
+      "words": [
+        "arts",
+        "verpleegkundige",
+        "leraar",
+        "student",
+        "ingenieur",
+        "advocaat",
+        "kok",
+        "boer",
+        "kunstenaar",
+        "schrijver",
+        "politieagent",
+        "brandweerman"
+      ]
+    },
+    {
+      "id": "builtin-adjectives",
+      "name": "Common Adjectives",
+      "words": [
+        "groot",
+        "klein",
+        "goed",
+        "slecht",
+        "nieuw",
+        "oud",
+        "jong",
+        "blij",
+        "verdrietig",
+        "mooi",
+        "lelijk",
+        "makkelijk",
+        "moeilijk",
+        "snel",
+        "langzaam"
+      ]
+    },
+    {
+      "id": "builtin-time",
+      "name": "Time",
+      "words": [
+        "vandaag",
+        "morgen",
+        "gisteren",
+        "nu",
+        "later",
+        "vroeg",
+        "laat",
+        "ochtend",
+        "middag",
+        "avond",
+        "nacht",
+        "uur",
+        "minuut",
+        "week",
+        "jaar"
+      ]
+    },
+    {
+      "id": "builtin-school",
+      "name": "School",
+      "words": [
+        "school",
+        "klas",
+        "leraar",
+        "leerling",
+        "boek",
+        "pen",
+        "potlood",
+        "papier",
+        "huiswerk",
+        "examen",
+        "les",
+        "universiteit"
+      ]
+    },
+    {
+      "id": "builtin-nature",
+      "name": "Nature & Plants",
+      "words": [
+        "boom",
+        "bloem",
+        "gras",
+        "bos",
+        "berg",
+        "rivier",
+        "meer",
+        "zee",
+        "strand",
+        "eiland",
+        "rots",
+        "blad"
+      ]
+    },
+    {
+      "id": "builtin-emotions",
+      "name": "Emotions",
+      "words": [
+        "liefde",
+        "angst",
+        "woede",
+        "vreugde",
+        "hoop",
+        "zorg",
+        "verrassing",
+        "schaamte",
+        "trots",
+        "eenzaamheid",
+        "vrede",
+        "stress"
+      ]
+    },
+    {
+      "id": "builtin-places",
+      "name": "Places in Town",
+      "words": [
+        "stad",
+        "stad",
+        "dorp",
+        "park",
+        "ziekenhuis",
+        "apotheek",
+        "bank",
+        "winkel",
+        "markt",
+        "restaurant",
+        "hotel",
+        "bibliotheek",
+        "museum",
+        "kerk"
+      ]
+    },
+    {
+      "id": "builtin-sports",
+      "name": "Sports",
+      "words": [
+        "voetbal",
+        "basketbal",
+        "tennis",
+        "zwemmen",
+        "hardlopen",
+        "fietsen",
+        "golf",
+        "honkbal",
+        "volleybal",
+        "skiën",
+        "boksen",
+        "team"
+      ]
+    },
+    {
+      "id": "builtin-questions",
+      "name": "Question Words",
+      "words": [
+        "wie",
+        "wat",
+        "waar",
+        "wanneer",
+        "waarom",
+        "hoe",
+        "welke",
+        "hoeveel",
+        "hoeveel"
+      ]
+    },
+    {
+      "id": "builtin-directions",
+      "name": "Directions",
+      "words": [
+        "links",
+        "rechts",
+        "rechtdoor",
+        "noorden",
+        "zuiden",
+        "oosten",
+        "westen",
+        "boven",
+        "beneden",
+        "dichtbij",
+        "ver",
+        "hier",
+        "daar"
+      ]
+    },
+    {
+      "id": "builtin-fruits",
+      "name": "Fruits & Vegetables",
+      "words": [
+        "appel",
+        "banaan",
+        "sinaasappel",
+        "druif",
+        "aardbei",
+        "wortel",
+        "komkommer",
+        "peper",
+        "sla",
+        "paddenstoel",
+        "citroen",
+        "peer"
+      ]
+    },
+    {
+      "id": "builtin-technology",
+      "name": "Technology",
+      "words": [
+        "computer",
+        "telefoon",
+        "internet",
+        "e-mail",
+        "website",
+        "scherm",
+        "toetsenbord",
+        "camera",
+        "batterij",
+        "software",
+        "wachtwoord",
+        "bestand"
+      ]
+    },
+    {
+      "id": "builtin-health",
+      "name": "Health",
+      "words": [
+        "gezondheid",
+        "ziekte",
+        "pijn",
+        "medicijn",
+        "ziekenhuis",
+        "arts",
+        "koorts",
+        "verkoudheid",
+        "hoest",
+        "allergie",
+        "beweging",
+        "rust"
+      ]
+    },
+    {
+      "id": "builtin-kitchen",
+      "name": "Kitchen",
+      "words": [
+        "mes",
+        "vork",
+        "lepel",
+        "bord",
+        "kop",
+        "glas",
+        "kom",
+        "pan",
+        "koekenpan",
+        "oven",
+        "koelkast",
+        "magnetron"
+      ]
+    }
+  ]
+}

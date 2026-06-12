@@ -19,10 +19,17 @@
       --border-width: 1px;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; overflow: hidden; margin: 0; }
-    body { font-family: "DM Sans", system-ui, sans-serif; background: var(--bg); color: var(--text); }
-    .screen { display: none; height: 100vh; overflow: hidden; position: relative; z-index: 1; }
-    .screen.active { display: flex; flex-direction: column; }
+    html { height: 100%; height: 100dvh; }
+    body {
+      height: 100%; height: 100dvh; overflow: hidden; margin: 0;
+      font-family: "DM Sans", system-ui, sans-serif; background: var(--bg); color: var(--text);
+    }
+    .screen {
+      display: none; position: relative; z-index: 1;
+      height: 100vh; height: 100dvh; max-height: 100dvh;
+      overflow: hidden;
+    }
+    .screen.active { display: flex; flex-direction: column; min-height: 0; }
 
     .card { background: var(--card); border: var(--border-width) solid var(--border); border-radius: var(--radius-card); }
     .pill { border: var(--border-width) solid var(--border); border-radius: var(--radius-pill); background: var(--card); }
@@ -53,18 +60,20 @@
     .toast { min-width: 4.25rem; padding: .5rem .75rem; font-size: .75rem; line-height: 1.2; text-align: center; white-space: nowrap; }
     .game-header {
       display: flex; align-items: center; justify-content: space-between;
-      flex-shrink: 0; padding: 1rem 1.25rem; gap: 1rem;
+      flex: 0 0 auto; padding: 1rem 1.25rem; gap: 1rem;
     }
     .game-header.limited { display: grid; grid-template-columns: auto 1fr auto; align-items: center; }
     .game-header.limited #game-progress { justify-self: center; }
     .game-header.limited #score-pill { justify-self: end; }
     .game-stage {
-      flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
-      overflow: hidden; padding: 1rem 1.25rem 5rem;
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+      padding: 1rem 1.25rem 5rem;
     }
     .game-stage-inner {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       width: 100%; max-width: 48rem; gap: 1.25rem;
+      margin: auto; flex-shrink: 0;
     }
     .game-badge {
       display: inline-flex; align-items: center; gap: .5rem;
@@ -216,30 +225,41 @@
     #lookup-overlay.open { display: block; }
     .game-actions { position: fixed; right: 1.25rem; bottom: 1.75rem; z-index: 5; display: flex; gap: .65rem; }
     .game-actions .action-label { display: inline; }
-    .game-actions .action-icon { display: none; font-size: 1.05rem; line-height: 1; width: 1.15rem; text-align: center; }
+    .game-actions .action-icon { display: none; font-size: 1.05rem; line-height: 1; width: 1.15rem; text-align: center; pointer-events: none; }
     .accent-details summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .details-chevron { font-size: .7rem; color: var(--muted); transition: transform .15s ease; flex-shrink: 0; }
     .accent-details[open] .details-chevron { transform: rotate(180deg); }
     .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
-    @media (max-width: 640px) {
-      .scroll-panel { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important; }
-      body { padding-bottom: env(safe-area-inset-bottom, 0px); }
-      .game-stage { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
-      .game-header { padding: .75rem 1rem; }
+    @media (max-width: 768px) {
+      .scroll-panel {
+        flex: 1; min-height: 0; min-width: 0;
+        padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
+        scroll-padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px));
+      }
+      .game-stage {
+        padding: .65rem 1rem calc(4.5rem + env(safe-area-inset-bottom, 0px));
+      }
+      .game-stage-inner { justify-content: flex-start; gap: .85rem; margin: 0; width: 100%; }
+      .game-badge { margin-top: 0; }
+      .game-sentence-card { padding: 1.35rem 1rem; }
+      .game-header { padding: .75rem 1rem; flex-shrink: 0; }
       .game-controls { gap: .5rem; }
       .game-controls .btn-game { min-height: 2.35rem; padding: .45rem .75rem; font-size: .8rem; }
       #btn-play-sentence { display: none !important; }
       .game-hint-text { display: none; }
       .game-actions {
-        left: 0; right: 0; bottom: 0; transform: none;
+        position: fixed; left: 0; right: 0; bottom: 0; transform: none;
         justify-content: space-around; gap: .35rem;
         padding: .55rem .75rem calc(.55rem + env(safe-area-inset-bottom, 0px));
         background: var(--card); border-top: var(--border-width) solid var(--border);
         z-index: 12;
       }
       .game-actions .btn-game-bar { min-width: 2.85rem; width: 2.85rem; height: 2.85rem; padding: 0; }
-      .game-actions .action-label { display: none; }
-      .game-actions .action-icon { display: inline; }
+      .game-actions .action-label { display: none !important; }
+      .game-actions .action-icon { display: inline-block !important; }
+      #menu-zipf-custom { scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+      #btn-custom-start { scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+      .scroll-end-spacer { height: 2rem; flex-shrink: 0; }
       .hub-grid { gap: .5rem; }
       .hub-tile-feature { min-height: 9.5rem; }
       .lookup-body { padding: .5rem; }
@@ -308,7 +328,10 @@
     html.theme-rugged .game-progress-bar,
     html.theme-rugged .game-progress-fill { border-radius: 0 !important; }
     html.theme-rugged .activity-card:hover { box-shadow: none; }
-    .scroll-panel { flex: 1; overflow-y: auto; overflow-x: hidden; }
+    .scroll-panel {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+    }
     .site-brand { font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
     .hub-stat { font-size: 1.5rem; font-weight: 700; }
     .btn-gear { width: 2.5rem; height: 2.5rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text); }
@@ -660,6 +683,7 @@
             <button id="btn-flashcard-start" type="button" class="btn-primary mt-5 w-full py-3 text-sm">Start Practice</button>
           </div>
         </div>
+        <div class="scroll-end-spacer" aria-hidden="true"></div>
       </div>
     </div>
   </section>

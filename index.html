@@ -152,13 +152,14 @@
     #sentence-line { font-size: clamp(1.2rem, 3.8vw, 1.75rem); line-height: 1.7; font-weight: 400; user-select: text; }
     .word-tap { cursor: pointer; border-radius: 2px; }
     .word-tap:active { background: color-mix(in srgb, var(--primary) 18%, transparent); }
-    .blank-inline { display: inline-flex; align-items: baseline; vertical-align: baseline; border-bottom: 2px solid var(--primary); margin: 0 1px; padding: 0 1px 2px; }
+    .blank-inline { display: inline-flex; align-items: baseline; vertical-align: baseline; border-bottom: 2px solid var(--primary); margin: 0 1px; padding: 0 1px 2px; min-height: 1.2em; }
     .blank-inline .hint-part { color: var(--primary); font-weight: 700; white-space: pre; }
-    .blank-inline input { font: inherit; font-size: inherit; line-height: inherit; font-weight: 700; border: none; outline: none; background: transparent; padding: 0; margin: 0; min-width: 0; caret-color: var(--text); color: var(--text); }
+    .blank-inline input { font: inherit; font-size: inherit; line-height: inherit; font-weight: 700; border: none; outline: none; background: transparent; padding: 0; margin: 0; min-width: 0; min-height: 1.2em; caret-color: var(--text); color: var(--text); pointer-events: auto; }
+    .blank-inline .revealed-answer { font-weight: 700; font-size: inherit; line-height: inherit; }
+    .blank-inline .revealed-answer.word-tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .blank-inline input.hidden { display: none; }
     .blank-inline.blank-hot .hint-part, .blank-inline.blank-hot input { color: var(--hot) !important; }
     .blank-inline.blank-cold .hint-part, .blank-inline.blank-cold input { color: var(--cold) !important; }
-    .blank-inline .revealed-answer { font-weight: 700; font-size: inherit; line-height: inherit; }
 
     .modal { display: none; }
     .modal.open { display: flex; }
@@ -174,6 +175,9 @@
     .load-track { margin-top: 1rem; height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
     #load-bar { display: block; height: 100%; max-width: 100%; width: 0; border-radius: var(--radius-pill); background: var(--primary); transition: width .2s ease; }
     @keyframes scoreBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.18); } 60% { transform: scale(.95); } }
+    @keyframes favBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.35); } 60% { transform: scale(.9); } }
+    #btn-favorite.fav-bounce .action-icon { animation: favBounce .55s ease; }
+    .wiki-back-btn { margin-bottom: .5rem; padding: .35rem .65rem; font-size: .75rem; font-weight: 600; }
     .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
 
     #word-tooltip { position: fixed; z-index: 45; display: none; background: var(--card); border: 1px solid var(--border); border-radius: .5rem; padding: .35rem; font-size: .8125rem; box-shadow: 0 4px 16px rgba(0,0,0,.1); pointer-events: auto; min-width: 9rem; }
@@ -239,8 +243,10 @@
       .game-stage {
         padding: .65rem 1rem calc(4.5rem + env(safe-area-inset-bottom, 0px));
       }
-      .game-stage-inner { justify-content: flex-start; gap: .85rem; margin: 0; width: 100%; }
+      .game-stage-inner { margin: auto 0; justify-content: center; gap: .85rem; width: 100%; }
       .game-badge { margin-top: 0; }
+      .blank-inline { min-height: 1.5em; padding: 2px 4px 4px; }
+      .toast { bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)); z-index: 20; }
       .game-sentence-card { padding: 1.35rem 1rem; }
       .game-header { padding: .75rem 1rem; flex-shrink: 0; }
       .game-controls { gap: .5rem; }
@@ -722,7 +728,7 @@
     </main>
     <div class="game-actions safe-bottom">
       <button id="btn-favorite" type="button" class="btn-ghost btn-game-bar" title="Save" aria-label="Save">
-        <i class="action-icon fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="action-label">Save</span>
+        <i class="action-icon fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="action-label fav-label">Save</span>
       </button>
       <button id="btn-skip" type="button" class="btn-ghost btn-game-bar" title="Skip" aria-label="Skip">
         <i class="action-icon fa-solid fa-forward-fast" aria-hidden="true"></i><span class="action-label">Skip</span>
@@ -879,7 +885,10 @@
     </div>
     <div class="lookup-body">
       <p id="lookup-translation" class="text-sm font-semibold shrink-0"></p>
-      <div id="lookup-wiki-scroll"><div id="lookup-wiki" class="wiki-content"></div></div>
+      <div id="lookup-wiki-scroll">
+        <button id="btn-wiki-back" type="button" class="btn-ghost wiki-back-btn hidden">← Back</button>
+        <div id="lookup-wiki" class="wiki-content"></div>
+      </div>
       <a id="lookup-wiki-link" href="#" target="_blank" rel="noopener" class="text-xs underline shrink-0" style="color:var(--primary)">Open full Wiktionary page</a>
       <div id="lookup-chat-area">
         <div id="lookup-chat-messages"></div>

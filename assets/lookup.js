@@ -16,6 +16,21 @@ const WIKI_SECTION = {
   zh: "Chinese",
 };
 
+export function wiktionaryTitleFromHref(href) {
+  if (!href) return null;
+  let path = href;
+  try {
+    if (href.includes("://")) path = new URL(href).pathname;
+  } catch {
+    /* relative */
+  }
+  const idx = path.indexOf("/wiki/");
+  if (idx < 0) return null;
+  const raw = path.slice(idx + 6).split("#")[0].split("?")[0];
+  if (!raw) return null;
+  return decodeURIComponent(raw.replace(/_/g, " "));
+}
+
 export function wiktionaryUrl(word) {
   const title = word.trim().replace(/ /g, "_");
   return `https://en.wiktionary.org/wiki/${encodeURIComponent(title)}`;
@@ -64,6 +79,7 @@ export async function fetchWiktionaryHtml(word, langCode) {
     format: "json",
     origin: "*",
     disablelimitreport: "1",
+    redirects: "1",
   });
   const res = await fetch(`${WIKI_API}?${params}`);
   if (!res.ok) throw new Error("Wiktionary request failed");
@@ -79,9 +95,22 @@ export async function fetchWiktionaryHtml(word, langCode) {
   ).forEach((el) => el.remove());
 
   div.querySelectorAll("a[href^='/']").forEach((a) => {
-    a.setAttribute("href", `https://en.wiktionary.org${a.getAttribute("href")}`);
-    a.setAttribute("target", "_blank");
-    a.setAttribute("rel", "noopener");
+    const href = a.getAttribute("href") || "";
+    if (href.startsWith("/wiki/")) {
+      a.removeAttribute("target");
+      a.removeAttribute("rel");
+      a.classList.add("wiki-internal-link");
+    } else {
+      a.setAttribute("href", `https://en.wiktionary.org${href}`);
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener");
+    }
+  });
+
+  div.querySelectorAll("a[href*='en.wiktionary.org/wiki/']").forEach((a) => {
+    a.removeAttribute("target");
+    a.removeAttribute("rel");
+    a.classList.add("wiki-internal-link");
   });
 
   div.querySelectorAll(".mw-heading").forEach((h) => {

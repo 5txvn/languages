@@ -34,7 +34,7 @@ import {
   maxRawLength,
   accentForHold,
 } from "./accents.js";
-import { lookupWord } from "./lookup.js";
+import { lookupWord, wiktionaryTitleFromHref, wiktionaryUrl } from "./lookup.js";
 import { groqChat, buildWordContext } from "./groq.js";
 import { pointsForAnswer } from "./score.js";
 import { exportSet, parseImport } from "./flashcards-io.js";
@@ -119,6 +119,7 @@ const state = {
   skippedSet: { indices: new Set(), sentences: new Set() },
   puzzle: null,
   translation: "",
+  answerTranslation: "",
   rawTyped: "",
   typed: "",
   revealedLen: 0,
@@ -141,6 +142,7 @@ const state = {
   selectedText: "",
   lookupWord: "",
   lookupTranslation: "",
+  lookupWikiHistory: [],
   chatHistory: [],
   selectedSetId: null,
   savedTab: "favorites",
@@ -866,7 +868,7 @@ function updateTypingFeedback($slot, typed, answer, revealedLen) {
 }
 
 function isMobileUi() {
-  return window.matchMedia("(max-width: 640px)").matches;
+  return window.matchMedia("(max-width: 768px)").matches;
 }
 
 function fillWordSpans($el, text) {
@@ -899,8 +901,8 @@ function refreshSentence() {
     $("#sent-after").text(after);
   }
   const $slot = $("#blank-slot");
-  const displayText = answer.slice(0, revealedLen) + (typed || "");
-  $slot.css("width", `${measureWordWidth(answer, $line[0]) + 6}px`);
+  const minSlotW = isMobileUi() ? Math.max(measureWordWidth(answer, $line[0]) + 6, 52) : measureWordWidth(answer, $line[0]) + 6;
+  $slot.css("width", `${minSlotW}px`);
   const $input = $("#blank-input");
   let $rev = $slot.find(".revealed-answer");
   if (revealed || state.awaitingContinue) {
@@ -908,9 +910,12 @@ function refreshSentence() {
     $input.addClass("hidden").val("").prop("disabled", true);
     if (!$rev.length) { $rev = $("<span>", { class: "revealed-answer" }); $slot.append($rev); }
     $rev.text(answer).css("color", state.awaitingContinue ? "var(--hot)" : "#c23b3b");
+    if (isMobileUi()) $rev.addClass("word-tap");
+    else $rev.removeClass("word-tap");
     $slot.removeClass("blank-hot blank-cold");
   } else {
     $rev.remove();
+    const displayText = answer.slice(0, revealedLen) + (typed || "");
     $input.removeClass("hidden").css("width", `${Math.max(measureWordWidth(displayText, $line[0]), 4) + 4}px`).val(rawTyped).prop("disabled", false);
     $("#hint-part").text(answer.slice(0, revealedLen));
     updateTypingFeedback($slot, typed, answer, revealedLen);
@@ -950,7 +955,8 @@ async function onCorrect() {
     state.lang,
     state.zipfDict,
     state.lemmaMap,
-    state.hintedAt
+    state.hintedAt,
+    state.answerTranslation
   );
   state.lastPoints = pts;
   state.lastHintCount = state.hintedAt.length;
@@ -1050,13 +1056,23 @@ function resetInput() {
 
 async function loadTranslation() {
   state.translation = "…";
+  state.answerTranslation = "";
   $("#game-translation").text(state.translation);
   refreshSentence();
   renderGameChrome();
   try {
-    state.translation = await translateText(state.puzzle.sentence, state.lang, state.nativeLang, state.translationCache);
+    const answer = state.puzzle?.answer ?? "";
+    const [sentenceTr, wordTr] = await Promise.all([
+      translateText(state.puzzle.sentence, state.lang, state.nativeLang, state.translationCache),
+      answer
+        ? translateText(answer, state.lang, state.nativeLang, state.translationCache).catch(() => "")
+        : Promise.resolve(""),
+    ]);
+    state.translation = sentenceTr;
+    state.answerTranslation = wordTr || "";
   } catch {
     state.translation = "(translation unavailable)";
+    state.answerTranslation = "";
   }
   $("#game-translation").text(state.translation);
   await updateFavoriteButton();
@@ -1282,12 +1298,24 @@ function markSkippedLocal(lineIndex, sentence) {
 
 async function updateFavoriteButton() {
   const idx = state.puzzle?.lineIndex;
+  const $btn = $("#btn-favorite");
   if (idx == null) {
-    $("#btn-favorite").text("Save").removeClass("btn-primary");
+    $btn.removeClass("btn-primary fav-saved").attr("title", "Save").attr("aria-label", "Save");
+    if (!isMobileUi()) $btn.find(".fav-label").text("Save");
     return;
   }
   const saved = await isFavorite(state.lang, idx);
-  $("#btn-favorite").text(saved ? "Saved" : "Save").toggleClass("btn-primary", saved);
+  $btn.toggleClass("btn-primary fav-saved", saved);
+  $btn.attr("title", saved ? "Saved" : "Save").attr("aria-label", saved ? "Saved" : "Save");
+  if (!isMobileUi()) $btn.find(".fav-label").text(saved ? "Saved" : "Save");
+}
+
+function bounceFavoriteButton() {
+  const el = $("#btn-favorite")[0];
+  if (!el) return;
+  el.classList.remove("fav-bounce");
+  void el.offsetWidth;
+  el.classList.add("fav-bounce");
 }
 
 async function toggleFavorite() {
@@ -1302,6 +1330,7 @@ async function toggleFavorite() {
     showToast("Removed from saved.");
   } else {
     await addFavorite(state.lang, idx, state.sourceFile);
+    bounceFavoriteButton();
     showToast("Sentence saved.");
   }
   await updateFavoriteButton();
@@ -1469,7 +1498,51 @@ function showSelectionTooltip(text, x, y) {
 function hideWordTooltip() { $("#word-tooltip").hide(); state.selectedText = ""; }
 
 function openLookupPanel() { $("#lookup-overlay, #lookup-panel").addClass("open"); }
-function closeLookupPanel() { $("#lookup-overlay, #lookup-panel").removeClass("open"); }
+function closeLookupPanel() {
+  $("#lookup-overlay, #lookup-panel").removeClass("open");
+  state.lookupWikiHistory = [];
+  $("#btn-wiki-back").addClass("hidden");
+}
+
+function updateWikiBackButton() {
+  $("#btn-wiki-back").toggleClass("hidden", state.lookupWikiHistory.length <= 1);
+}
+
+async function loadLookupWikiContent(word, { pushHistory = false, replaceHistory = false } = {}) {
+  const title = word.trim();
+  if (!title) return;
+  state.lookupWord = title;
+  $("#lookup-title").text(title);
+  $("#lookup-translation").text("Loading…");
+  $("#lookup-wiki").html("");
+  $("#lookup-wiki-link").attr("href", wiktionaryUrl(title));
+  if (replaceHistory) state.lookupWikiHistory = [title];
+  else if (pushHistory) state.lookupWikiHistory.push(title);
+  updateWikiBackButton();
+  try {
+    const result = await lookupWord(title, state.lang, state.nativeLang, state.translationCache);
+    state.lookupTranslation = result.translation;
+    $("#lookup-translation").text(`Translation: ${result.translation}`);
+    if (result.wikiHtml) $("#lookup-wiki").html(result.wikiHtml);
+    else $("#lookup-wiki").html(`<p class="text-sm italic" style="color:var(--muted)">No Wiktionary entry found.</p>`);
+  } catch {
+    $("#lookup-translation").text("(lookup failed)");
+    $("#lookup-wiki").html(`<p class="text-sm italic" style="color:var(--muted)">Could not load Wiktionary.</p>`);
+  }
+}
+
+async function navigateLookupWiki(word) {
+  await loadLookupWikiContent(word, { pushHistory: true });
+  $("#lookup-wiki-scroll").scrollTop(0);
+}
+
+async function lookupWikiBack() {
+  if (state.lookupWikiHistory.length <= 1) return;
+  state.lookupWikiHistory.pop();
+  const word = state.lookupWikiHistory[state.lookupWikiHistory.length - 1];
+  await loadLookupWikiContent(word);
+  $("#lookup-wiki-scroll").scrollTop(0);
+}
 
 function appendChatBubble(role, text, isError = false) {
   $("#lookup-chat-messages").append(`<div class="chat-bubble ${isError ? "error" : role}">${$("<div>").text(text).html()}</div>`);
@@ -1496,22 +1569,8 @@ async function runLookup(word) {
   if (!word?.trim()) return;
   hideWordTooltip();
   openLookupPanel();
-  const title = word.trim();
-  state.lookupWord = title;
-  $("#lookup-title").text(title);
-  $("#lookup-translation").text("Loading…");
-  $("#lookup-wiki").html("");
   resetChatUI();
-  try {
-    const result = await lookupWord(title, state.lang, state.nativeLang, state.translationCache);
-    state.lookupTranslation = result.translation;
-    $("#lookup-translation").text(`Translation: ${result.translation}`);
-    $("#lookup-wiki-link").attr("href", result.url);
-    if (result.wikiHtml) $("#lookup-wiki").html(result.wikiHtml);
-    else $("#lookup-wiki").html(`<p class="text-sm italic" style="color:var(--muted)">No Wiktionary entry found.</p>`);
-  } catch {
-    $("#lookup-translation").text("(lookup failed)");
-  }
+  await loadLookupWikiContent(word.trim(), { replaceHistory: true });
 }
 
 async function openAddFlashcardModal(word) {
@@ -1871,6 +1930,27 @@ $("#btn-create-set-inline").on("click", () => {
 });
 
 $("#btn-close-lookup, #lookup-overlay").on("click", closeLookupPanel);
+$("#btn-wiki-back").on("click", () => lookupWikiBack().catch(() => {}));
+$("#lookup-wiki").on("click", "a", function (e) {
+  const href = this.getAttribute("href");
+  const title = wiktionaryTitleFromHref(href);
+  if (!title) return;
+  e.preventDefault();
+  navigateLookupWiki(title).catch(() => showToast("Could not load Wiktionary page."));
+});
+$("#blank-slot").on("click", function (e) {
+  if (state.revealed || state.awaitingContinue || !state.puzzle) return;
+  if ($(e.target).closest(".revealed-answer").length) return;
+  e.stopPropagation();
+  const input = $("#blank-input")[0];
+  if (input && !input.disabled) input.focus({ preventScroll: true });
+});
+$("#blank-slot").on("click", ".revealed-answer.word-tap", function (e) {
+  if (!isMobileUi()) return;
+  e.stopPropagation();
+  const word = $(this).text().trim();
+  if (word.length >= 2) runLookup(word);
+});
 $("#chat-input").on("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();

@@ -130,13 +130,24 @@ export function renderScoreChart(canvas, history, days = 7) {
   return points;
 }
 
+function formatChartHoverDate(dateStr) {
+  if (!dateStr) return "";
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!m || !d) return dateStr;
+  return `${m}/${d}`;
+}
+
 export function attachChartHover(canvas, tooltipEl) {
   if (!canvas || canvas._chartHoverBound) return;
   canvas._chartHoverBound = true;
 
   const show = (p) => {
     if (!tooltipEl || !p) return;
-    tooltipEl.textContent = `${p.date ?? p.label}: ${p.v} pts`;
+    const dateLabel = formatChartHoverDate(p.date) || p.label;
+    tooltipEl.textContent = `${dateLabel}: ${p.v} pts`;
     tooltipEl.style.display = "block";
     const rect = canvas.getBoundingClientRect();
     tooltipEl.style.left = `${rect.left + p.x}px`;

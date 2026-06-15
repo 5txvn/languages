@@ -149,6 +149,56 @@ export function wordsMatch(guess, answer) {
   return normalizeForMatch(guess) === normalizeForMatch(answer);
 }
 
+/** True if the same word appears at another token position (would spoil the blank). */
+export function answerAppearsElsewhere(tokens, blankIndex, answer) {
+  const norm = normalizeForMatch(answer);
+  for (let i = 0; i < tokens.length; i++) {
+    if (i === blankIndex) continue;
+    if (normalizeForMatch(tokens[i]) === norm) return true;
+  }
+  return false;
+}
+
+export function stripAccents(s) {
+  return (s ?? "").normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+export function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const row = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) row[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let prev = i - 1;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + cost);
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+
+export const COGNATE_MAX_DISTANCE = 5;
+export const COGNATE_MIN_WORD_LEN = 4;
+export const COGNATE_ZIPF_BONUS = 1.25;
+
+/** Extra Zipf when target word is a cognate of its translation (easier → fewer points). */
+export function cognateZipfBonus(word, translation) {
+  if (!word || !translation) return 0;
+  const a = stripAccents(normalizeForMatch(word)).replace(/[^a-z0-9]/gu, "");
+  const b = stripAccents(normalizeForMatch(translation)).replace(/[^a-z0-9]/gu, "");
+  if (!a || !b) return 0;
+  const minLen = Math.min(a.length, b.length);
+  if (minLen < COGNATE_MIN_WORD_LEN) return 0;
+  if (Math.abs(a.length - b.length) > COGNATE_MAX_DISTANCE) return 0;
+  if (levenshtein(a, b) <= COGNATE_MAX_DISTANCE) return COGNATE_ZIPF_BONUS;
+  return 0;
+}
+
 export function prefixMatches(guess, answer) {
   const g = normalizeForMatch(guess);
   const a = normalizeForMatch(answer);
@@ -288,7 +338,9 @@ export function eligibleBlankIndices(tokens, lo, hi, lang, zipfDict, lemmaMap) {
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok.length < 3 || !/^\p{L}+$/u.test(tok)) continue;
-    if (zipfInRange(tok, lo, hi, lang, zipfDict, lemmaMap)) indices.push(i);
+    if (!zipfInRange(tok, lo, hi, lang, zipfDict, lemmaMap)) continue;
+    if (answerAppearsElsewhere(tokens, i, tok)) continue;
+    indices.push(i);
   }
   return indices;
 }
@@ -468,6 +520,8 @@ export function indexFlashcardPuzzles(sentences, words, skippedSet = null) {
       const tok = positioned[j].text;
       const key = tok.toLowerCase();
       if (tok.length < 2 || !targets.has(key)) continue;
+      const texts = positioned.map((t) => t.text);
+      if (answerAppearsElsewhere(texts, j, tok)) continue;
       puzzles.push({
         sentence,
         lineIndex: sentenceLineIndex(entry),

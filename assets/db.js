@@ -433,6 +433,9 @@ export async function logSentenceAttempt({
   const norm = sentence.trim().normalize("NFC");
   const id = sentenceId(langCode, norm);
   const existing = await getSentenceReview(id);
+  const shouldTrack = existing || !correct || hintCount > 1;
+  if (!shouldTrack) return null;
+
   const attempts = [
     ...(existing?.attempts ?? []),
     { at: Date.now(), typed, answer: answer ?? "", correct, hintCount },

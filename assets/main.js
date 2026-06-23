@@ -5,13 +5,17 @@ import {
   resolveDataUrl,
   LEGACY_SENTENCE_FILES,
   DEFAULT_SENTENCE_FILTERS,
+  FILTER_AVG_ZIPF_MIN,
+  FILTER_AVG_ZIPF_MAX,
   wordsMatch,
   prefixMatches,
   loadZipfDict,
+  loadCorpusStats,
   loadLemmaMap,
   streamSentences,
   streamAllSentences,
   buildPuzzle,
+  indexZipfPuzzles,
   indexFlashcardPuzzles,
   pickFlashcardPuzzle,
   shuffleArray,
@@ -96,8 +100,11 @@ const state = {
   groqApiKey: "",
   zipfDict: {},
   lemmaMap: {},
+  corpusStats: null,
   sentences: [],
   vocabSet: new Set(),
+  puzzlePool: [],
+  puzzlePoolUsed: new Set(),
   fullVocabLoaded: false,
   dataLoaded: false,
   sessionPoints: 0,
@@ -139,6 +146,7 @@ const state = {
   inReview: false,
   reviewItems: [],
   reviewIndex: 0,
+  reviewSessionTotal: 0,
   selectedText: "",
   lookupWord: "",
   lookupTranslation: "",
@@ -273,6 +281,85 @@ function readSentenceFilters() {
     minAvgZipf: zipf.lo,
     maxAvgZipf: zipf.hi,
   };
+}
+
+function applyCorpusStatsToFiltersUI() {
+  const stats = state.corpusStats;
+  const min = stats?.minAvgZipf ?? FILTER_AVG_ZIPF_MIN;
+  const max = stats?.maxAvgZipf ?? FILTER_AVG_ZIPF_MAX;
+  const $lo = $("#filter-avgzipf-lo");
+  const $hi = $("#filter-avgzipf-hi");
+  $lo.attr({ min, max, step: 0.1 });
+  $hi.attr({ min, max, step: 0.1 });
+  let lo = +$lo.val();
+  let hi = +$hi.val();
+  if (lo < min) lo = min;
+  if (hi > max) hi = max;
+  if (lo >= hi) {
+    lo = min;
+    hi = max;
+  }
+  $lo.val(lo);
+  $hi.val(hi);
+  syncDualRange(
+    "#filter-avgzipf-lo",
+    "#filter-avgzipf-hi",
+    "#filter-avgzipf-fill",
+    "#filter-avgzipf-label",
+    (a, b) => `${a.toFixed(1)} – ${b.toFixed(1)}`
+  );
+  renderAvgZipfHistogram();
+}
+
+function renderAvgZipfHistogram() {
+  const $el = $("#filter-avgzipf-histogram").empty();
+  const hist = state.corpusStats?.histogram;
+  if (!hist?.length) {
+    $el.addClass("hidden");
+    return;
+  }
+  $el.removeClass("hidden");
+  const maxCount = Math.max(...hist.map((b) => b.count), 1);
+  for (const bucket of hist) {
+    const pct = Math.max(4, Math.round((bucket.count / maxCount) * 100));
+    $el.append(
+      $("<div>", {
+        class: "zipf-hist-bar",
+        title: `${bucket.lo.toFixed(1)}–${bucket.hi.toFixed(1)}: ${bucket.count} sentences`,
+        css: { height: `${pct}%` },
+      })
+    );
+  }
+}
+
+function refreshPuzzlePool() {
+  if (state.practiceMode !== "zipf") {
+    state.puzzlePool = [];
+    state.puzzlePoolUsed = new Set();
+    return;
+  }
+  state.puzzlePool = indexZipfPuzzles(
+    state.sentences,
+    state.zipfLo,
+    state.zipfHi,
+    state.lang,
+    state.zipfDict,
+    state.lemmaMap,
+    state.skippedSet,
+    state.sentenceFilters,
+    state.corpusStats
+  );
+  state.puzzlePoolUsed = new Set();
+}
+
+function dropPuzzlePoolForSkipped(lineIndex, sentence) {
+  if (!state.puzzlePool.length) return;
+  const norm = sentence?.trim().normalize("NFC");
+  state.puzzlePool = state.puzzlePool.filter((p) => {
+    if (lineIndex != null && p.lineIndex === lineIndex) return false;
+    if (norm && p.sentence.trim().normalize("NFC") === norm) return false;
+    return true;
+  });
 }
 
 function syncFilterUI() {
@@ -422,7 +509,9 @@ async function renderLangHub() {
   $(".hub-tile").not("#btn-mode-foundations, #btn-mode-saved, #btn-mode-revisit").toggleClass("disabled", !available);
   $("#btn-mode-revisit").toggleClass("disabled", dueCount === 0);
   $("#revisit-due-desc").text(
-    dueCount ? `${dueCount} sentence${dueCount === 1 ? "" : "s"} due · mastered after ${LEARNED_THRESHOLD} correct` : "Play sentences to build your review queue"
+    dueCount
+      ? `${dueCount} sentence${dueCount === 1 ? "" : "s"} due · spaced review after mistakes or 2+ hints`
+      : "Mistakes and hard words appear here for spaced review"
   );
   if (available) scheduleHubChart();
 }
@@ -431,9 +520,10 @@ async function ensureLanguageData(lang) {
   if (state.dataLoaded && state.lang === lang.code) return;
   showScreen("screen-loading");
   setLoadProgress(5, `Loading ${lang.label}…`);
-  const [zipfDict, lemmaMap, sentResult, skipped, sets] = await Promise.all([
+  const [zipfDict, lemmaMap, corpusStats, sentResult, skipped, sets] = await Promise.all([
     loadZipfDict(lang.code),
     loadLemmaMap(lang.code),
+    loadCorpusStats(lang.code),
     resolveDataUrl(lang.file, { fallbacks: LEGACY_SENTENCE_FILES[lang.code] ? [LEGACY_SENTENCE_FILES[lang.code]] : [] })
       .then((url) => streamSentences(url, TARGET_COUNT, setLoadProgress)),
     getSkippedSet(lang.code),
@@ -447,11 +537,13 @@ async function ensureLanguageData(lang) {
   state.sourceFile = lang.file;
   state.zipfDict = zipfDict;
   state.lemmaMap = lemmaMap;
+  state.corpusStats = corpusStats;
   state.sentences = lines;
   state.vocabSet = buildVocabSet(lines);
   state.skippedSet = skipped;
   state.flashcardSets = sets;
   state.dataLoaded = true;
+  applyCorpusStatsToFiltersUI();
   setLoadProgress(100, "Ready");
 }
 
@@ -599,7 +691,7 @@ function renderPracticeMenu() {
   const isFlashcard = mode === "flashcard";
   const isArticle = mode === "article";
   $("#menu-zipf-section").toggleClass("hidden", isFlashcard);
-  $("#menu-sentence-filters").toggleClass("hidden", isFlashcard || isArticle);
+  $("#menu-sentence-filters").toggleClass("hidden", isArticle);
   $("#menu-flashcard-section").toggleClass("hidden", !isFlashcard);
   $("#menu-article-pick").toggleClass("hidden", !isArticle);
   $("#question-limit").closest(".card").toggleClass("hidden", isArticle);
@@ -620,6 +712,7 @@ function openFlashcardPracticeMenu(set) {
   state.activeFlashcardSet = set;
   state.practiceMode = "flashcard";
   state.levelName = "Flashcards";
+  applyCorpusStatsToFiltersUI();
   renderPracticeMenu();
   showScreen("screen-menu");
 }
@@ -835,7 +928,7 @@ function renderGameChrome() {
     );
   } else {
     $("#review-banner").toggleClass("hidden", !state.inReview).text(
-      state.inReview ? `Review ${state.reviewIndex + 1} of ${state.reviewItems.length}` : ""
+      state.inReview ? `Review ${state.reviewIndex + 1} of ${state.reviewSessionTotal}` : ""
     );
   }
   if (state.awaitingContinue) {
@@ -844,7 +937,16 @@ function renderGameChrome() {
   }
   else if (state.revealed) $("#game-hint-text").text("Press Enter To Continue");
   else $("#game-hint-text").text("Press Enter To Check · ? For Hint · Highlight Any Word");
-  $("#btn-play-sentence").toggleClass("hidden", !(state.enableTts && state.puzzle?.sentence));
+  const $play = $("#btn-play-sentence");
+  const $accents = $("#btn-accents");
+  const showPlay = state.enableTts && state.puzzle?.sentence;
+  if (isMobileUi()) {
+    $play.toggleClass("hidden", !showPlay).text("Pronounce");
+    $accents.addClass("hidden");
+  } else {
+    $play.toggleClass("hidden", !showPlay).text("Play sentence");
+    $accents.removeClass("hidden");
+  }
 }
 
 function syncFromRaw() {
@@ -973,7 +1075,7 @@ async function onCorrect() {
     correct: true,
     hintCount: state.hintedAt.length,
   });
-  if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex]) {
+  if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex] && reviewRow) {
     state.revisitQueue[state.revisitIndex] = reviewRow;
   }
   renderGameChrome();
@@ -1023,6 +1125,7 @@ function shouldStartReview() {
 function startReviewBatch() {
   state.inReview = true;
   state.reviewItems = state.wrongQueue.map(clonePuzzle);
+  state.reviewSessionTotal = state.reviewItems.length;
   state.wrongQueue = [];
   state.reviewIndex = 0;
   state.questionsSinceReview = 0;
@@ -1100,7 +1203,11 @@ async function advanceQuestion() {
     return;
   }
   if (state.inReview) {
-    if (state.awaitingContinue) { state.reviewItems.splice(state.reviewIndex, 1); loadReviewPuzzle(); return; }
+    if (state.awaitingContinue) {
+      state.reviewIndex += 1;
+      loadReviewPuzzle();
+      return;
+    }
     if (state.revealed) { resetInput(); loadTranslation(); return; }
     return;
   }
@@ -1192,7 +1299,8 @@ async function startNormalRound() {
       state.lang,
       state.zipfDict,
       state.lemmaMap,
-      state.sentenceFilters
+      state.sentenceFilters,
+      state.corpusStats
     );
     if (!puzzle) {
       showToast(`Finished "${state.activeArticle.title}".`);
@@ -1211,8 +1319,30 @@ async function startNormalRound() {
       state.lemmaMap,
       120,
       state.skippedSet,
-      state.sentenceFilters
+      state.sentenceFilters,
+      state.corpusStats,
+      state.puzzlePool,
+      state.puzzlePoolUsed
     );
+    if (puzzle) puzzle = clonePuzzle(puzzle);
+    if (!puzzle && state.practiceMode === "zipf") {
+      refreshPuzzlePool();
+      puzzle = buildPuzzle(
+        state.sentences,
+        state.zipfLo,
+        state.zipfHi,
+        state.lang,
+        state.zipfDict,
+        state.lemmaMap,
+        120,
+        state.skippedSet,
+        state.sentenceFilters,
+        state.corpusStats,
+        state.puzzlePool,
+        state.puzzlePoolUsed
+      );
+      if (puzzle) puzzle = clonePuzzle(puzzle);
+    }
   }
   if (!puzzle) {
     showToast(state.practiceMode === "flashcard"
@@ -1236,6 +1366,7 @@ async function startFlashcardPractice() {
   state.flashcardCycleIndex = 0;
   state.questionLimit = readQuestionLimit();
   state.questionsAnswered = 0;
+  state.sentenceFilters = readSentenceFilters();
 
   showScreen("screen-loading");
   setLoadProgress(2, "Scanning all sentences…");
@@ -1245,7 +1376,12 @@ async function startFlashcardPractice() {
     state.flashcardPuzzlePool = indexFlashcardPuzzles(
       lines,
       state.flashcardWordOrder,
-      state.skippedSet
+      state.skippedSet,
+      state.sentenceFilters,
+      state.lang,
+      state.zipfDict,
+      state.lemmaMap,
+      state.corpusStats
     );
     if (!state.flashcardPuzzlePool.length) {
       showToast("No sentences found for these words in the corpus.");
@@ -1270,6 +1406,8 @@ async function startGame(lo, hi, name) {
   state.questionsSinceReview = 0;
   state.inReview = false;
   state.reviewItems = [];
+  state.reviewSessionTotal = 0;
+  state.sentenceFilters = readSentenceFilters();
   if (state.practiceMode === "zipf") {
     state.questionLimit = readQuestionLimit();
     state.questionsAnswered = 0;
@@ -1277,6 +1415,9 @@ async function startGame(lo, hi, name) {
     state.questionLimit = 0;
     state.questionsAnswered = 0;
     state.articleCursor = 0;
+  } else if (state.practiceMode === "flashcard") {
+    state.questionLimit = readQuestionLimit();
+    state.questionsAnswered = 0;
   }
   resetInput();
   if (state.practiceMode === "zipf" || state.practiceMode === "article") {
@@ -1285,6 +1426,21 @@ async function startGame(lo, hi, name) {
     syncSliders();
   }
   applyTheme(state.lang);
+
+  if (state.practiceMode === "zipf") {
+    showScreen("screen-loading");
+    setLoadProgress(15, "Finding matching sentences…");
+    await new Promise((r) => requestAnimationFrame(r));
+    refreshPuzzlePool();
+    if (!state.puzzlePool.length) {
+      showToast("No matching sentences. Try widening zipf or turning off sentence filters.");
+      renderPracticeMenu();
+      showScreen("screen-menu");
+      return;
+    }
+    setLoadProgress(100, `${state.puzzlePool.length} matching puzzles`);
+  }
+
   showScreen("screen-game");
   renderAccentModal();
   renderGameChrome();
@@ -1294,6 +1450,7 @@ async function startGame(lo, hi, name) {
 function markSkippedLocal(lineIndex, sentence) {
   if (lineIndex != null) state.skippedSet.indices.add(lineIndex);
   else if (sentence) state.skippedSet.sentences.add(sentence.trim().normalize("NFC"));
+  dropPuzzlePoolForSkipped(lineIndex, sentence);
 }
 
 async function updateFavoriteButton() {
@@ -1721,6 +1878,7 @@ $("#btn-mode-sentences").on("click", () => {
   state.activeArticle = null;
   renderPresets();
   syncSliders();
+  applyCorpusStatsToFiltersUI();
   syncFilterUI();
   renderPracticeMenu();
   showScreen("screen-menu");

@@ -75,12 +75,13 @@ export function buildArticlePuzzle(
   lang,
   zipfDict,
   lemmaMap,
-  filters = null
+  filters = null,
+  corpusStats = null
 ) {
   const sentences = splitArticleSentences(article.text);
   for (let si = cursor; si < sentences.length; si++) {
     const sentence = sentences[si];
-    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap)) continue;
+    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, null)) continue;
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < 4) continue;
     const texts = positioned.map((t) => t.text);

@@ -125,15 +125,33 @@ export function sentenceAverageZipf(sentence, lang, zipfDict, lemmaMap) {
   return zipfs.reduce((a, b) => a + b, 0) / zipfs.length;
 }
 
+/** Average Zipf for a sentence — prefers precomputed corpus stats by line index. */
+export function sentenceAvgZipfForFilter(sentence, lineIndex, lang, zipfDict, lemmaMap, corpusStats) {
+  if (corpusStats?.avgZipfByLine && lineIndex != null && lineIndex < corpusStats.avgZipfByLine.length) {
+    const cached = corpusStats.avgZipfByLine[lineIndex];
+    if (cached != null) return cached;
+  }
+  const dict = corpusStats?.wordZipf ?? zipfDict;
+  return sentenceAverageZipf(sentence, lang, dict, lemmaMap);
+}
+
 /** Optional filters so surrounding sentence complexity matches the blank word level. */
-export function sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap) {
+export function sentencePassesFilters(
+  sentence,
+  filters,
+  lang,
+  zipfDict,
+  lemmaMap,
+  corpusStats = null,
+  lineIndex = null
+) {
   if (!filters?.enabled) return true;
   const positioned = tokenizeWithPositions(sentence);
   const wc = positioned.length;
   if (filters.minWords != null && wc < filters.minWords) return false;
   if (filters.maxWords != null && wc > filters.maxWords) return false;
   if (filters.minAvgZipf != null || filters.maxAvgZipf != null) {
-    const avg = sentenceAverageZipf(sentence, lang, zipfDict, lemmaMap);
+    const avg = sentenceAvgZipfForFilter(sentence, lineIndex, lang, zipfDict, lemmaMap, corpusStats);
     if (avg == null) return false;
     if (filters.minAvgZipf != null && avg < filters.minAvgZipf) return false;
     if (filters.maxAvgZipf != null && avg > filters.maxAvgZipf) return false;
@@ -351,6 +369,71 @@ export async function loadZipfDict(lang) {
   return await res.json();
 }
 
+/** Per-sentence avg Zipf + histogram from the sentence corpus (see scripts/build_corpus_stats.py). */
+export async function loadCorpusStats(lang) {
+  try {
+    const res = await fetch(assetUrl(`corpus-stats/${lang}.json`));
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export function puzzleKey(puzzle) {
+  if (puzzle.lineIndex != null) return `i:${puzzle.lineIndex}:${puzzle.blankIndex}`;
+  return `s:${puzzle.sentence}:${puzzle.blankIndex}`;
+}
+
+/** Pre-index every valid blank for the current zipf range and sentence filters. */
+export function indexZipfPuzzles(
+  sentences,
+  lo,
+  hi,
+  lang,
+  zipfDict,
+  lemmaMap,
+  skippedSet,
+  filters,
+  corpusStats
+) {
+  const puzzles = [];
+  for (const entry of sentences) {
+    if (isSkipped(entry, skippedSet)) continue;
+    const sentence = sentenceText(entry);
+    const lineIndex = sentenceLineIndex(entry);
+    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)) {
+      continue;
+    }
+    const positioned = tokenizeWithPositions(sentence);
+    if (positioned.length < 5) continue;
+    const texts = positioned.map((t) => t.text);
+    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
+    for (const blankIndex of candidates) {
+      puzzles.push({
+        sentence,
+        lineIndex,
+        tokens: positioned,
+        blankIndex,
+        answer: positioned[blankIndex].text,
+      });
+    }
+  }
+  return puzzles;
+}
+
+export function pickFromPuzzlePool(pool, usedKeys) {
+  if (!pool?.length) return null;
+  let available = pool.filter((p) => !usedKeys.has(puzzleKey(p)));
+  if (!available.length) {
+    usedKeys.clear();
+    available = pool;
+  }
+  const pick = available[Math.floor(Math.random() * available.length)];
+  usedKeys.add(puzzleKey(pick));
+  return pick;
+}
+
 export async function loadLemmaMap(lang) {
   try {
     const res = await fetch(assetUrl(`lemmas/${lang}.json`));
@@ -481,13 +564,20 @@ export function buildPuzzle(
   lemmaMap,
   maxTries = 120,
   skippedSet = null,
-  filters = null
+  filters = null,
+  corpusStats = null,
+  pool = null,
+  usedKeys = null
 ) {
+  if (pool) return pickFromPuzzlePool(pool, usedKeys ?? new Set());
   for (let i = 0; i < maxTries; i++) {
     const entry = sentences[Math.floor(Math.random() * sentences.length)];
     if (isSkipped(entry, skippedSet)) continue;
     const sentence = sentenceText(entry);
-    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap)) continue;
+    const lineIndex = sentenceLineIndex(entry);
+    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)) {
+      continue;
+    }
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < 5) continue;
     const texts = positioned.map((t) => t.text);
@@ -496,7 +586,7 @@ export function buildPuzzle(
     const blankIndex = candidates[Math.floor(Math.random() * candidates.length)];
     return {
       sentence,
-      lineIndex: sentenceLineIndex(entry),
+      lineIndex,
       tokens: positioned,
       blankIndex,
       answer: positioned[blankIndex].text,
@@ -506,7 +596,16 @@ export function buildPuzzle(
 }
 
 /** Scan all sentences and collect every puzzle that blanks a flashcard word. */
-export function indexFlashcardPuzzles(sentences, words, skippedSet = null) {
+export function indexFlashcardPuzzles(
+  sentences,
+  words,
+  skippedSet = null,
+  filters = null,
+  lang = null,
+  zipfDict = null,
+  lemmaMap = null,
+  corpusStats = null
+) {
   const targets = new Set(words.map((w) => w.toLowerCase()));
   const puzzles = [];
   if (!targets.size) return puzzles;
@@ -514,6 +613,13 @@ export function indexFlashcardPuzzles(sentences, words, skippedSet = null) {
   for (const entry of sentences) {
     if (isSkipped(entry, skippedSet)) continue;
     const sentence = sentenceText(entry);
+    const lineIndex = sentenceLineIndex(entry);
+    if (
+      filters?.enabled &&
+      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)
+    ) {
+      continue;
+    }
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < 4) continue;
     for (let j = 0; j < positioned.length; j++) {

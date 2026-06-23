@@ -6,11 +6,11 @@ export const LEARNED_THRESHOLD = 5;
 
 /** Ms until next review after each successful completion (1st–5th). */
 export const REVIEW_INTERVALS_MS = [
-  10 * 60 * 1000,
   24 * 60 * 60 * 1000,
   3 * 24 * 60 * 60 * 1000,
   7 * 24 * 60 * 60 * 1000,
   14 * 24 * 60 * 60 * 1000,
+  30 * 24 * 60 * 60 * 1000,
 ];
 
 export function nextReviewAfterCorrect(correctCount) {
@@ -19,7 +19,7 @@ export function nextReviewAfterCorrect(correctCount) {
 }
 
 export function nextReviewAfterWrong() {
-  return Date.now();
+  return Date.now() + 24 * 60 * 60 * 1000;
 }
 
 export function isLearned(review) {

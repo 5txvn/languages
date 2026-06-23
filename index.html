@@ -234,7 +234,8 @@
     .details-chevron { font-size: .7rem; color: var(--muted); transition: transform .15s ease; flex-shrink: 0; }
     .accent-details[open] .details-chevron { transform: rotate(180deg); }
     .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
-    @media (max-width: 768px) {
+      @media (max-width: 768px) {
+      #btn-accents { display: none !important; }
       .scroll-panel {
         flex: 1; min-height: 0; min-width: 0;
         padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
@@ -251,7 +252,6 @@
       .game-header { padding: .75rem 1rem; flex-shrink: 0; }
       .game-controls { gap: .5rem; }
       .game-controls .btn-game { min-height: 2.35rem; padding: .45rem .75rem; font-size: .8rem; }
-      #btn-play-sentence { display: none !important; }
       .game-hint-text { display: none; }
       .game-actions {
         position: fixed; left: 0; right: 0; bottom: 0; transform: none;
@@ -278,6 +278,16 @@
       #lookup-overlay.open { display: block; }
       #sentence-line .word-tap { -webkit-tap-highlight-color: transparent; }
     }
+    .zipf-hist-chart {
+      display: flex; align-items: flex-end; gap: 2px; height: 3.5rem; margin-top: .5rem;
+      padding: .35rem .25rem 0; border: 1px solid var(--border); border-radius: .5rem;
+      background: color-mix(in srgb, var(--card) 92%, var(--muted));
+    }
+    .zipf-hist-bar {
+      flex: 1; min-width: 0; border-radius: 2px 2px 0 0;
+      background: color-mix(in srgb, var(--primary) 55%, white);
+    }
+    .zipf-hist-bar:hover { background: var(--primary); }
     .review-banner { background: color-mix(in srgb, var(--primary) 12%, white); border: var(--border-width) solid var(--border); border-radius: var(--radius-pill); padding: .35rem .85rem; font-size: .75rem; font-weight: 600; }
     .btn-audio { width: 2rem; height: 2rem; padding: 0; border-radius: var(--radius-pill); border: var(--border-width) solid var(--border); background: var(--card); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .btn-audio:hover { border-color: var(--primary); }
@@ -629,38 +639,6 @@
           <h2 id="menu-presets-heading" class="text-sm font-semibold">Word difficulty</h2>
           <div id="preset-grid" class="preset-grid mt-2"></div>
 
-          <div id="menu-sentence-filters" class="card mt-4 p-4">
-            <label class="flex cursor-pointer items-start gap-2.5 text-sm">
-              <input id="filter-sentences-enable" type="checkbox" class="mt-0.5" />
-              <span>
-                <span class="font-semibold">Filter sentence length & complexity</span>
-                <span class="mt-0.5 block text-xs" style="color:var(--muted)">Off by default. When on, skips long or vocabulary-heavy sentences so the blank matches your level.</span>
-              </span>
-            </label>
-            <div id="filter-sentences-fields" class="filter-fields disabled mt-4 space-y-5">
-              <div>
-                <label class="text-xs font-semibold" style="color:var(--muted)">Words per sentence: <span id="filter-words-label" class="font-mono">5 – 15</span></label>
-                <div class="range-wrap mt-2">
-                  <div class="range-track"></div>
-                  <div id="filter-words-fill" class="range-fill"></div>
-                  <input id="filter-words-lo" type="range" min="5" max="15" step="1" value="5" />
-                  <input id="filter-words-hi" type="range" min="5" max="15" step="1" value="15" />
-                </div>
-                <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Shorter</span><span>Longer</span></div>
-              </div>
-              <div>
-                <label class="text-xs font-semibold" style="color:var(--muted)">Avg. word commonness (Zipf): <span id="filter-avgzipf-label" class="font-mono">4.9 – 6.5</span></label>
-                <div class="range-wrap mt-2">
-                  <div class="range-track"></div>
-                  <div id="filter-avgzipf-fill" class="range-fill"></div>
-                  <input id="filter-avgzipf-lo" type="range" min="4.9" max="6.5" step="0.1" value="4.9" />
-                  <input id="filter-avgzipf-hi" type="range" min="4.9" max="6.5" step="0.1" value="6.5" />
-                </div>
-                <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Harder mix</span><span>Basic mix</span></div>
-              </div>
-            </div>
-          </div>
-
           <div class="card mt-6 p-5" id="menu-zipf-custom">
             <div class="flex items-center gap-2">
               <h2 class="text-sm font-semibold">Custom Zipf Range</h2>
@@ -689,6 +667,40 @@
             <button id="btn-flashcard-start" type="button" class="btn-primary mt-5 w-full py-3 text-sm">Start Practice</button>
           </div>
         </div>
+
+        <div id="menu-sentence-filters" class="card mt-4 p-4">
+          <label class="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input id="filter-sentences-enable" type="checkbox" class="mt-0.5" />
+            <span>
+              <span class="font-semibold">Filter sentence length & complexity</span>
+              <span class="mt-0.5 block text-xs" style="color:var(--muted)">Off by default. When on, skips long or vocabulary-heavy sentences so the blank matches your level.</span>
+            </span>
+          </label>
+          <div id="filter-sentences-fields" class="filter-fields disabled mt-4 space-y-5">
+            <div>
+              <label class="text-xs font-semibold" style="color:var(--muted)">Words per sentence: <span id="filter-words-label" class="font-mono">5 – 15</span></label>
+              <div class="range-wrap mt-2">
+                <div class="range-track"></div>
+                <div id="filter-words-fill" class="range-fill"></div>
+                <input id="filter-words-lo" type="range" min="5" max="15" step="1" value="5" />
+                <input id="filter-words-hi" type="range" min="5" max="15" step="1" value="15" />
+              </div>
+              <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Shorter</span><span>Longer</span></div>
+            </div>
+            <div>
+              <label class="text-xs font-semibold" style="color:var(--muted)">Avg. word commonness (corpus Zipf): <span id="filter-avgzipf-label" class="font-mono">4.9 – 6.5</span></label>
+              <div id="filter-avgzipf-histogram" class="zipf-hist-chart hidden" aria-hidden="true"></div>
+              <div class="range-wrap mt-2">
+                <div class="range-track"></div>
+                <div id="filter-avgzipf-fill" class="range-fill"></div>
+                <input id="filter-avgzipf-lo" type="range" min="4.9" max="6.5" step="0.1" value="4.9" />
+                <input id="filter-avgzipf-hi" type="range" min="4.9" max="6.5" step="0.1" value="6.5" />
+              </div>
+              <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Harder mix</span><span>Basic mix</span></div>
+            </div>
+          </div>
+        </div>
+
         <div class="scroll-end-spacer" aria-hidden="true"></div>
       </div>
     </div>

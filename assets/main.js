@@ -24,9 +24,12 @@ import {
   isKnownWord,
   fetchSentenceAtIndex,
   sentenceText,
+  blankWordDedupKey,
+  puzzleMatchesReported,
+  puzzleIsSkipped,
 } from "./game.js";
 import { loadArticles, buildArticlePuzzle, articleDifficultyLabel } from "./articles.js";
-import { feedbackCorrect, feedbackWrong, speakWord, speakSentence, stopSpeech } from "./tts.js";
+import { feedbackCorrect, feedbackWrong, speakWord, speakSentence, stopSpeech, configureTts, TTS_VARIANTS } from "./tts.js";
 import { applyTheme } from "./theme.js";
 import { confettiColors } from "./lang-config.js";
 import {
@@ -81,6 +84,9 @@ import {
   logSentenceAttempt,
   getDueReviews,
   countDueReviews,
+  deleteSentenceReviewForPuzzle,
+  getWordExposureMap,
+  incrementWordExposure,
 } from "./db.js";
 import { LEARNED_THRESHOLD, puzzleFromReview } from "./srs.js";
 
@@ -105,6 +111,10 @@ const state = {
   vocabSet: new Set(),
   puzzlePool: [],
   puzzlePoolUsed: new Set(),
+  sessionBlankKeys: new Set(),
+  wordExposure: {},
+  ttsLocales: {},
+  ttsRate: 0.92,
   fullVocabLoaded: false,
   dataLoaded: false,
   sessionPoints: 0,
@@ -227,16 +237,128 @@ async function loadPersistedSettings() {
     state.enableTts = s.enableTts;
     $("#setting-tts").prop("checked", s.enableTts);
   }
+  if (s?.ttsLocales) state.ttsLocales = { ...s.ttsLocales };
+  if (s?.ttsRate != null) {
+    state.ttsRate = s.ttsRate;
+    if ($("#tts-rate").length) {
+      $("#tts-rate").val(s.ttsRate);
+      $("#tts-rate-label").text(s.ttsRate.toFixed(2));
+    }
+  }
+  applyTtsConfig();
+  renderTtsLocaleSettings();
+}
+
+function applyTtsConfig() {
+  configureTts({ locales: state.ttsLocales, rate: state.ttsRate });
+}
+
+function renderTtsLocaleSettings() {
+  const $wrap = $("#tts-locale-settings").empty();
+  const codes = [...new Set(state.learning.map((l) => l.code))];
+  if (!codes.length) {
+    $wrap.append(
+      $("<p>", { class: "text-xs", style: "color:var(--muted)", text: "Add a language to configure pronunciation." })
+    );
+    return;
+  }
+  for (const code of codes) {
+    const lang = catalogLang(code);
+    const variants = TTS_VARIANTS[code];
+    if (!variants?.length) continue;
+    const $row = $(`
+      <label class="block text-sm">
+        <span class="font-semibold">${lang?.label ?? code} voice</span>
+        <select class="tts-locale-pick select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" data-lang="${code}" style="border-color:var(--border)"></select>
+      </label>
+    `);
+    const $sel = $row.find("select");
+    for (const v of variants) {
+      $sel.append(`<option value="${v.locale}">${v.label}</option>`);
+    }
+    $sel.val(state.ttsLocales[code] || variants[0].locale);
+    $wrap.append($row);
+  }
+}
+
+async function applyPersistedSentenceFilters(langCode) {
+  const s = await getSettings();
+  const saved = s?.filtersByLang?.[langCode];
+  if (!saved) return;
+  $("#filter-sentences-enable").prop("checked", Boolean(saved.enabled));
+  if (saved.minWords != null) $("#filter-words-lo").val(saved.minWords);
+  if (saved.maxWords != null) $("#filter-words-hi").val(saved.maxWords);
+  if (saved.minAvgZipf != null) $("#filter-avgzipf-lo").val(saved.minAvgZipf);
+  if (saved.maxAvgZipf != null) $("#filter-avgzipf-hi").val(saved.maxAvgZipf);
+  applyCorpusStatsToFiltersUI();
+  syncFilterUI({ persist: false });
+}
+
+let persistFiltersTimer = null;
+function schedulePersistSentenceFilters() {
+  clearTimeout(persistFiltersTimer);
+  persistFiltersTimer = setTimeout(() => {
+    persistSentenceFilters().catch(() => {});
+  }, 350);
+}
+
+async function persistSentenceFilters() {
+  if (!state.lang) return;
+  const existing = (await getSettings()) ?? {};
+  const filters = readSentenceFilters();
+  await saveSettings({
+    ...existing,
+    filtersByLang: { ...(existing.filtersByLang ?? {}), [state.lang]: filters },
+  });
+}
+
+function blankWordOpts() {
+  return {
+    sessionBlankKeys: state.sessionBlankKeys,
+    wordExposure: state.wordExposure,
+    lang: state.lang,
+    lemmaMap: state.lemmaMap,
+  };
+}
+
+async function trackPuzzleShown(puzzle) {
+  if (!puzzle?.answer) return;
+  const key = blankWordDedupKey(puzzle.answer, state.lang, state.lemmaMap);
+  state.sessionBlankKeys.add(key);
+  const count = await incrementWordExposure(state.lang, key);
+  state.wordExposure[key] = count;
+}
+
+function purgeReportedPuzzle(puzzle) {
+  const match = (p) => puzzleMatchesReported(p, puzzle);
+  state.wrongQueue = state.wrongQueue.filter((p) => !match(p));
+  const reviewIdx = state.reviewItems.findIndex((p) => match(p));
+  if (reviewIdx >= 0) {
+    state.reviewItems.splice(reviewIdx, 1);
+    if (reviewIdx < state.reviewIndex) state.reviewIndex -= 1;
+    state.reviewSessionTotal = Math.max(0, state.reviewSessionTotal - 1);
+  }
+  state.revisitQueue = state.revisitQueue.filter(
+    (r) => !(r.lineIndex != null && puzzle.lineIndex != null && r.lineIndex === puzzle.lineIndex) &&
+      r.sentence?.trim().normalize("NFC") !== puzzle.sentence?.trim().normalize("NFC")
+  );
+  state.flashcardPuzzlePool = state.flashcardPuzzlePool.filter((p) => !match(p));
+  dropPuzzlePoolForSkipped(puzzle.lineIndex, puzzle.sentence);
 }
 
 async function persistSettings() {
+  const existing = (await getSettings()) ?? {};
   await saveSettings({
+    ...existing,
     nativeCode: NATIVE_LANG,
     nativeLabel: NATIVE_LABEL,
     nativeCountry: "gb",
     reviewInterval: state.reviewInterval,
     groqApiKey: state.groqApiKey,
     enableTts: state.enableTts,
+    ttsLocales: state.ttsLocales,
+    ttsRate: state.ttsRate,
+    filtersByLang: existing.filtersByLang,
   });
 }
 
@@ -347,7 +469,8 @@ function refreshPuzzlePool() {
     state.lemmaMap,
     state.skippedSet,
     state.sentenceFilters,
-    state.corpusStats
+    state.corpusStats,
+    blankWordOpts()
   );
   state.puzzlePoolUsed = new Set();
 }
@@ -362,10 +485,11 @@ function dropPuzzlePoolForSkipped(lineIndex, sentence) {
   });
 }
 
-function syncFilterUI() {
+function syncFilterUI({ persist = true } = {}) {
   const enabled = $("#filter-sentences-enable").is(":checked");
   $("#filter-sentences-fields").toggleClass("disabled", !enabled);
   state.sentenceFilters = readSentenceFilters();
+  if (persist) schedulePersistSentenceFilters();
 }
 
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
@@ -520,7 +644,7 @@ async function ensureLanguageData(lang) {
   if (state.dataLoaded && state.lang === lang.code) return;
   showScreen("screen-loading");
   setLoadProgress(5, `Loading ${lang.label}…`);
-  const [zipfDict, lemmaMap, corpusStats, sentResult, skipped, sets] = await Promise.all([
+  const [zipfDict, lemmaMap, corpusStats, sentResult, skipped, sets, wordExposure] = await Promise.all([
     loadZipfDict(lang.code),
     loadLemmaMap(lang.code),
     loadCorpusStats(lang.code),
@@ -528,6 +652,7 @@ async function ensureLanguageData(lang) {
       .then((url) => streamSentences(url, TARGET_COUNT, setLoadProgress)),
     getSkippedSet(lang.code),
     getFlashcardSets(lang.code),
+    getWordExposureMap(lang.code),
   ]);
   const { lines, lang: detected } = sentResult;
   if (!lines.length) throw new Error(`No sentences in ${lang.file}`);
@@ -541,9 +666,11 @@ async function ensureLanguageData(lang) {
   state.sentences = lines;
   state.vocabSet = buildVocabSet(lines);
   state.skippedSet = skipped;
+  state.wordExposure = wordExposure;
   state.flashcardSets = sets;
   state.dataLoaded = true;
   applyCorpusStatsToFiltersUI();
+  await applyPersistedSentenceFilters(lang.code);
   setLoadProgress(100, "Ready");
 }
 
@@ -941,10 +1068,10 @@ function renderGameChrome() {
   const $accents = $("#btn-accents");
   const showPlay = state.enableTts && state.puzzle?.sentence;
   if (isMobileUi()) {
-    $play.toggleClass("hidden", !showPlay).text("Pronounce");
+    $play.toggleClass("hidden", !showPlay).attr("title", "Pronounce").attr("aria-label", "Pronounce");
     $accents.addClass("hidden");
   } else {
-    $play.toggleClass("hidden", !showPlay).text("Play sentence");
+    $play.toggleClass("hidden", !showPlay).attr("title", "Play sentence").attr("aria-label", "Play sentence");
     $accents.removeClass("hidden");
   }
 }
@@ -1088,7 +1215,12 @@ async function onCorrect() {
 }
 
 async function onWrong() {
-  if (!state.inReview && state.practiceMode !== "revisit") {
+  if (
+    !state.inReview &&
+    state.practiceMode !== "revisit" &&
+    state.puzzle &&
+    !puzzleIsSkipped(state.puzzle, state.skippedSet)
+  ) {
     state.wrongQueue.push(clonePuzzle(state.puzzle));
   }
   const guess = state.puzzle.answer.slice(0, state.revealedLen) + state.typed;
@@ -1124,15 +1256,29 @@ function shouldStartReview() {
 
 function startReviewBatch() {
   state.inReview = true;
-  state.reviewItems = state.wrongQueue.map(clonePuzzle);
+  state.reviewItems = state.wrongQueue
+    .map(clonePuzzle)
+    .filter((p) => !puzzleIsSkipped(p, state.skippedSet));
   state.reviewSessionTotal = state.reviewItems.length;
   state.wrongQueue = [];
   state.reviewIndex = 0;
   state.questionsSinceReview = 0;
+  if (!state.reviewItems.length) {
+    state.inReview = false;
+    startNormalRound();
+    return;
+  }
   loadReviewPuzzle();
 }
 
 function loadReviewPuzzle() {
+  while (
+    state.reviewIndex < state.reviewItems.length &&
+    puzzleIsSkipped(state.reviewItems[state.reviewIndex], state.skippedSet)
+  ) {
+    state.reviewItems.splice(state.reviewIndex, 1);
+    state.reviewSessionTotal = Math.max(state.reviewIndex, state.reviewItems.length);
+  }
   if (state.reviewIndex >= state.reviewItems.length) {
     state.inReview = false;
     state.reviewItems = [];
@@ -1141,6 +1287,7 @@ function loadReviewPuzzle() {
   }
   resetInput();
   state.puzzle = state.reviewItems[state.reviewIndex];
+  trackPuzzleShown(state.puzzle).catch(() => {});
   loadTranslation();
 }
 
@@ -1250,7 +1397,20 @@ async function loadRevisitPuzzle() {
     showScreen("screen-lang-hub");
     return;
   }
+  while (
+    state.revisitIndex < state.revisitQueue.length &&
+    puzzleIsSkipped(puzzleFromReview(state.revisitQueue[state.revisitIndex]), state.skippedSet)
+  ) {
+    state.revisitIndex += 1;
+  }
+  if (state.revisitIndex >= state.revisitQueue.length) {
+    showToast("Revisit session complete.");
+    await renderLangHub();
+    showScreen("screen-lang-hub");
+    return;
+  }
   state.puzzle = puzzleFromReview(state.revisitQueue[state.revisitIndex]);
+  await trackPuzzleShown(state.puzzle);
   await loadTranslation();
 }
 
@@ -1286,6 +1446,7 @@ async function startNormalRound() {
       sequential: state.flashcardSequential,
       wordOrder: state.flashcardWordOrder,
       cycleIndex: state.flashcardCycleIndex,
+      ...blankWordOpts(),
     });
     puzzle = picked.puzzle;
     state.flashcardCycleIndex = picked.nextCycleIndex;
@@ -1322,7 +1483,8 @@ async function startNormalRound() {
       state.sentenceFilters,
       state.corpusStats,
       state.puzzlePool,
-      state.puzzlePoolUsed
+      state.puzzlePoolUsed,
+      blankWordOpts()
     );
     if (puzzle) puzzle = clonePuzzle(puzzle);
     if (!puzzle && state.practiceMode === "zipf") {
@@ -1339,7 +1501,8 @@ async function startNormalRound() {
         state.sentenceFilters,
         state.corpusStats,
         state.puzzlePool,
-        state.puzzlePoolUsed
+        state.puzzlePoolUsed,
+        blankWordOpts()
       );
       if (puzzle) puzzle = clonePuzzle(puzzle);
     }
@@ -1352,6 +1515,7 @@ async function startNormalRound() {
     return;
   }
   state.puzzle = puzzle;
+  await trackPuzzleShown(puzzle);
   await loadTranslation();
 }
 
@@ -1381,7 +1545,8 @@ async function startFlashcardPractice() {
       state.lang,
       state.zipfDict,
       state.lemmaMap,
-      state.corpusStats
+      state.corpusStats,
+      { wordExposure: state.wordExposure }
     );
     if (!state.flashcardPuzzlePool.length) {
       showToast("No sentences found for these words in the corpus.");
@@ -1407,6 +1572,7 @@ async function startGame(lo, hi, name) {
   state.inReview = false;
   state.reviewItems = [];
   state.reviewSessionTotal = 0;
+  state.sessionBlankKeys = new Set();
   state.sentenceFilters = readSentenceFilters();
   if (state.practiceMode === "zipf") {
     state.questionLimit = readQuestionLimit();
@@ -1510,11 +1676,19 @@ function openReportModal() {
 
 async function confirmReportSentence() {
   if (!state.puzzle) return;
+  const reported = clonePuzzle(state.puzzle);
   closeModal("modal-report");
-  await markSentenceSkipped(state.lang, state.puzzle.lineIndex, state.sourceFile, state.puzzle.sentence);
-  markSkippedLocal(state.puzzle.lineIndex, state.puzzle.sentence);
+  stopSpeech();
+  await markSentenceSkipped(state.lang, reported.lineIndex, state.sourceFile, reported.sentence);
+  markSkippedLocal(reported.lineIndex, reported.sentence);
+  await deleteSentenceReviewForPuzzle(state.lang, reported.sentence);
+  purgeReportedPuzzle(reported);
   showToast("Sentence reported and hidden.");
   resetInput();
+  if (state.inReview) {
+    loadReviewPuzzle();
+    return;
+  }
   startNormalRound();
 }
 
@@ -1861,6 +2035,7 @@ $("#btn-foundations-back").on("click", () => {
 });
 
 $("#btn-settings").on("click", () => {
+  renderTtsLocaleSettings();
   openModal("modal-settings");
 });
 
@@ -2019,6 +2194,18 @@ $("#filter-sentences-enable").on("change", syncFilterUI);
 $("#filter-words-lo, #filter-words-hi, #filter-avgzipf-lo, #filter-avgzipf-hi").on("input", syncFilterUI);
 $("#setting-tts").on("change", async () => {
   state.enableTts = $("#setting-tts").is(":checked");
+  await persistSettings();
+});
+$("#tts-rate").on("input", async () => {
+  state.ttsRate = +$("#tts-rate").val();
+  $("#tts-rate-label").text(state.ttsRate.toFixed(2));
+  applyTtsConfig();
+  await persistSettings();
+});
+$(document).on("change", ".tts-locale-pick", async function () {
+  const code = this.dataset.lang;
+  state.ttsLocales[code] = this.value;
+  applyTtsConfig();
   await persistSettings();
 });
 

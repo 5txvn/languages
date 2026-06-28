@@ -73,6 +73,98 @@ export const DEFAULT_SENTENCE_FILTERS = {
 
 /** Pessimistic Zipf for tokens missing from the static dictionary (pulls avg down). */
 export const ZIPF_UNKNOWN_ESTIMATE = 3.0;
+export const MAX_BLANK_WORD_EXPOSURE = 5;
+
+/** True when the lemma map links this form to a verb infinitive (conjugation). */
+export function isVerbForm(word, lemmaMap) {
+  const lower = (word ?? "").toLowerCase();
+  return Boolean(lemmaMap?.[lower]);
+}
+
+/** Singular/plural normalization for nouns — not applied to verb forms. */
+export function nounLemmaKey(word, lang) {
+  let w = normalizeForMatch(word);
+  if (lang === "pt") {
+    if (w.endsWith("ões") && w.length > 4) return `${w.slice(0, -3)}ão`;
+    if (w.endsWith("ães") && w.length > 4) return `${w.slice(0, -3)}ão`;
+    if (w.endsWith("ais") && w.length > 4) return `${w.slice(0, -1)}l`;
+    if (w.endsWith("éis") && w.length > 4) return `${w.slice(0, -3)}el`;
+    if (w.endsWith("óis") && w.length > 4) return `${w.slice(0, -3)}ol`;
+    if (w.endsWith("uis") && w.length > 4) return `${w.slice(0, -3)}ul`;
+    if (w.endsWith("zes") && w.length > 4) return `${w.slice(0, -2)}z`;
+    if (
+      w.endsWith("es") &&
+      w.length > 4 &&
+      !w.endsWith("mes") &&
+      !w.endsWith("res") &&
+      !w.endsWith("nes")
+    ) {
+      return w.slice(0, -2);
+    }
+    if (w.endsWith("s") && w.length > 3) return w.slice(0, -1);
+    return w;
+  }
+  if (lang === "es") {
+    if (w.endsWith("ces") && w.length > 4) return `${w.slice(0, -3)}z`;
+    if (
+      w.endsWith("es") &&
+      w.length > 4 &&
+      !w.endsWith("mes") &&
+      !w.endsWith("res") &&
+      !w.endsWith("nes")
+    ) {
+      return w.slice(0, -2);
+    }
+    if (w.endsWith("s") && w.length > 3) return w.slice(0, -1);
+    return w;
+  }
+  if (
+    w.endsWith("es") &&
+    w.length > 4 &&
+    !w.endsWith("mes") &&
+    !w.endsWith("res") &&
+    !w.endsWith("nes")
+  ) {
+    return w.slice(0, -2);
+  }
+  if (w.endsWith("s") && w.length > 3) return w.slice(0, -1);
+  return w;
+}
+
+/** Session/global dedup key — nouns collapse plural forms; verbs keep each surface form. */
+export function blankWordDedupKey(word, lang, lemmaMap) {
+  const lower = normalizeForMatch(word);
+  if (isVerbForm(word, lemmaMap)) return `v:${lower}`;
+  return `n:${nounLemmaKey(lower, lang)}`;
+}
+
+export function puzzleMatchesReported(a, b) {
+  if (!a || !b) return false;
+  if (a.lineIndex != null && b.lineIndex != null && a.lineIndex === b.lineIndex) return true;
+  const na = (a.sentence ?? "").trim().normalize("NFC");
+  const nb = (b.sentence ?? "").trim().normalize("NFC");
+  return na.length > 0 && na === nb;
+}
+
+export function puzzleIsSkipped(puzzle, skippedSet) {
+  if (!puzzle || !skippedSet) return false;
+  if (puzzle.lineIndex != null && skippedSet.indices?.has(puzzle.lineIndex)) return true;
+  const norm = puzzle.sentence?.trim().normalize("NFC");
+  if (norm && skippedSet.sentences?.has(norm)) return true;
+  return false;
+}
+
+export function blankWordAllowed(
+  word,
+  lang,
+  lemmaMap,
+  { sessionBlankKeys = null, wordExposure = null, maxExposure = MAX_BLANK_WORD_EXPOSURE } = {}
+) {
+  const key = blankWordDedupKey(word, lang, lemmaMap);
+  if (sessionBlankKeys?.has(key)) return false;
+  if ((wordExposure?.[key] ?? 0) >= maxExposure) return false;
+  return true;
+}
 
 const DE_STEM_SUFFIXES = [
   "ieren", "ierung", "ungen", "ung", "heit", "keit", "lich", "isch", "chen", "lein",
@@ -395,7 +487,8 @@ export function indexZipfPuzzles(
   lemmaMap,
   skippedSet,
   filters,
-  corpusStats
+  corpusStats,
+  { sessionBlankKeys = null, wordExposure = null, maxExposure = MAX_BLANK_WORD_EXPOSURE } = {}
 ) {
   const puzzles = [];
   for (const entry of sentences) {
@@ -410,25 +503,57 @@ export function indexZipfPuzzles(
     const texts = positioned.map((t) => t.text);
     const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
     for (const blankIndex of candidates) {
+      const answer = positioned[blankIndex].text;
+      if (
+        !blankWordAllowed(answer, lang, lemmaMap, {
+          sessionBlankKeys,
+          wordExposure,
+          maxExposure,
+        })
+      ) {
+        continue;
+      }
       puzzles.push({
         sentence,
         lineIndex,
         tokens: positioned,
         blankIndex,
-        answer: positioned[blankIndex].text,
+        answer,
       });
     }
   }
   return puzzles;
 }
 
-export function pickFromPuzzlePool(pool, usedKeys) {
+export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
   if (!pool?.length) return null;
-  let available = pool.filter((p) => !usedKeys.has(puzzleKey(p)));
+  const { lang, lemmaMap, sessionBlankKeys, wordExposure, maxExposure = MAX_BLANK_WORD_EXPOSURE } =
+    wordOpts;
+  let available = pool.filter((p) => {
+    if (usedKeys.has(puzzleKey(p))) return false;
+    if (lang && lemmaMap) {
+      return blankWordAllowed(p.answer, lang, lemmaMap, {
+        sessionBlankKeys,
+        wordExposure,
+        maxExposure,
+      });
+    }
+    return true;
+  });
   if (!available.length) {
     usedKeys.clear();
-    available = pool;
+    available = pool.filter((p) => {
+      if (lang && lemmaMap) {
+        return blankWordAllowed(p.answer, lang, lemmaMap, {
+          sessionBlankKeys,
+          wordExposure,
+          maxExposure,
+        });
+      }
+      return true;
+    });
   }
+  if (!available.length) return null;
   const pick = available[Math.floor(Math.random() * available.length)];
   usedKeys.add(puzzleKey(pick));
   return pick;
@@ -567,9 +692,12 @@ export function buildPuzzle(
   filters = null,
   corpusStats = null,
   pool = null,
-  usedKeys = null
+  usedKeys = null,
+  wordOpts = null
 ) {
-  if (pool) return pickFromPuzzlePool(pool, usedKeys ?? new Set());
+  if (pool) {
+    return pickFromPuzzlePool(pool, usedKeys ?? new Set(), wordOpts ?? {});
+  }
   for (let i = 0; i < maxTries; i++) {
     const entry = sentences[Math.floor(Math.random() * sentences.length)];
     if (isSkipped(entry, skippedSet)) continue;
@@ -582,8 +710,11 @@ export function buildPuzzle(
     if (positioned.length < 5) continue;
     const texts = positioned.map((t) => t.text);
     const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
-    if (candidates.length === 0) continue;
-    const blankIndex = candidates[Math.floor(Math.random() * candidates.length)];
+    const allowed = candidates.filter((i) =>
+      blankWordAllowed(positioned[i].text, lang, lemmaMap, wordOpts ?? {})
+    );
+    if (allowed.length === 0) continue;
+    const blankIndex = allowed[Math.floor(Math.random() * allowed.length)];
     return {
       sentence,
       lineIndex,
@@ -604,7 +735,8 @@ export function indexFlashcardPuzzles(
   lang = null,
   zipfDict = null,
   lemmaMap = null,
-  corpusStats = null
+  corpusStats = null,
+  { wordExposure = null, maxExposure = MAX_BLANK_WORD_EXPOSURE } = {}
 ) {
   const targets = new Set(words.map((w) => w.toLowerCase()));
   const puzzles = [];
@@ -626,6 +758,13 @@ export function indexFlashcardPuzzles(
       const tok = positioned[j].text;
       const key = tok.toLowerCase();
       if (tok.length < 2 || !targets.has(key)) continue;
+      if (
+        lang &&
+        lemmaMap &&
+        !blankWordAllowed(tok, lang, lemmaMap, { wordExposure, maxExposure })
+      ) {
+        continue;
+      }
       const texts = positioned.map((t) => t.text);
       if (answerAppearsElsewhere(texts, j, tok)) continue;
       puzzles.push({
@@ -651,14 +790,26 @@ export function shuffleArray(arr) {
 }
 
 /** Pick next flashcard puzzle — random pool or shuffled word cycle (each word once per round). */
-export function pickFlashcardPuzzle(pool, { sequential, wordOrder, cycleIndex }) {
+export function pickFlashcardPuzzle(
+  pool,
+  { sequential, wordOrder, cycleIndex, lang, lemmaMap, sessionBlankKeys, wordExposure, maxExposure }
+) {
   if (!pool?.length) {
     return { puzzle: null, nextCycleIndex: cycleIndex ?? 0, nextWordOrder: wordOrder };
   }
 
+  const wordOk = (p) =>
+    !lang ||
+    !lemmaMap ||
+    blankWordAllowed(p.answer, lang, lemmaMap, { sessionBlankKeys, wordExposure, maxExposure });
+
   if (!sequential || !wordOrder?.length) {
+    const eligible = pool.filter(wordOk);
+    if (!eligible.length) {
+      return { puzzle: null, nextCycleIndex: cycleIndex ?? 0, nextWordOrder: wordOrder };
+    }
     return {
-      puzzle: pool[Math.floor(Math.random() * pool.length)],
+      puzzle: eligible[Math.floor(Math.random() * eligible.length)],
       nextCycleIndex: cycleIndex ?? 0,
       nextWordOrder: wordOrder,
     };
@@ -674,7 +825,7 @@ export function pickFlashcardPuzzle(pool, { sequential, wordOrder, cycleIndex })
   for (let attempt = 0; attempt < order.length; attempt++) {
     const wordIdx = (idx + attempt) % order.length;
     const targetWord = order[wordIdx].toLowerCase();
-    const matching = pool.filter((p) => p.targetWord === targetWord);
+    const matching = pool.filter((p) => p.targetWord === targetWord && wordOk(p));
     if (matching.length) {
       const nextIdx = wordIdx + 1;
       const nextOrder = nextIdx >= order.length ? shuffleArray(order) : order;

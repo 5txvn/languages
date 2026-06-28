@@ -3,7 +3,7 @@
 import { LEARNED_THRESHOLD, nextReviewAfterCorrect, nextReviewAfterWrong } from "./srs.js";
 
 const DB_NAME = "lang-practice";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -38,6 +38,10 @@ function openDb() {
         const reviews = db.createObjectStore("sentence_reviews", { keyPath: "id" });
         reviews.createIndex("langCode", "langCode", { unique: false });
         reviews.createIndex("nextReviewAt", "nextReviewAt", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("word_exposure")) {
+        const exp = db.createObjectStore("word_exposure", { keyPath: "id" });
+        exp.createIndex("langCode", "langCode", { unique: false });
       }
 
       if (e.oldVersion < 2 && db.objectStoreNames.contains("stats")) {
@@ -133,7 +137,7 @@ export async function removeLearningLanguage(code) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const t = db.transaction(
-      ["learning", "stats", "skipped", "flashcard_sets", "favorites", "sentence_reviews"],
+      ["learning", "stats", "skipped", "flashcard_sets", "favorites", "sentence_reviews", "word_exposure"],
       "readwrite"
     );
     t.objectStore("learning").delete(code);
@@ -165,6 +169,14 @@ export async function removeLearningLanguage(code) {
 
     const reviewStore = t.objectStore("sentence_reviews");
     reviewStore.index("langCode").openCursor(IDBKeyRange.only(code)).onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return;
+      c.delete();
+      c.continue();
+    };
+
+    const expStore = t.objectStore("word_exposure");
+    expStore.index("langCode").openCursor(IDBKeyRange.only(code)).onsuccess = (e) => {
       const c = e.target.result;
       if (!c) return;
       c.delete();
@@ -396,12 +408,16 @@ export async function getSentenceReviews(langCode) {
   });
 }
 
-export async function getDueReviews(langCode, { includeLearned = false } = {}) {
+export async function getDueReviews(langCode, { includeLearned = false, skippedSet = null } = {}) {
+  const skipped = skippedSet ?? (await getSkippedSet(langCode));
   const all = await getSentenceReviews(langCode);
   const now = Date.now();
   return all
     .filter((r) => {
       if (!includeLearned && r.learned) return false;
+      if (r.lineIndex != null && skipped.indices?.has(r.lineIndex)) return false;
+      const norm = r.sentence?.trim().normalize("NFC");
+      if (norm && skipped.sentences?.has(norm)) return false;
       return (r.nextReviewAt ?? 0) <= now;
     })
     .sort((a, b) => (a.nextReviewAt ?? 0) - (b.nextReviewAt ?? 0));
@@ -476,11 +492,53 @@ export async function logSentenceAttempt({
   return row;
 }
 
+export async function deleteSentenceReview(id) {
+  await tx("sentence_reviews", "readwrite", (os) => os.delete(id));
+}
+
+export async function deleteSentenceReviewForPuzzle(langCode, sentence) {
+  const norm = sentence?.trim().normalize("NFC");
+  if (!norm) return;
+  await deleteSentenceReview(sentenceId(langCode, norm));
+}
+
+export async function getWordExposureMap(langCode) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction("word_exposure", "readonly");
+    const req = t.objectStore("word_exposure").index("langCode").getAll(langCode);
+    req.onsuccess = () => {
+      const map = {};
+      for (const row of req.result ?? []) {
+        if (row.wordKey) map[row.wordKey] = row.count ?? 0;
+      }
+      resolve(map);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function incrementWordExposure(langCode, wordKey) {
+  const id = `${langCode}:${wordKey}`;
+  const db = await openDb();
+  const existing = await new Promise((resolve, reject) => {
+    const t = db.transaction("word_exposure", "readonly");
+    const req = t.objectStore("word_exposure").get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+  const count = (existing?.count ?? 0) + 1;
+  await tx("word_exposure", "readwrite", (os) => {
+    os.put({ id, langCode, wordKey, count, lastSeenAt: Date.now() });
+  });
+  return count;
+}
+
 export async function clearAllData() {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const t = db.transaction(
-      ["settings", "learning", "stats", "skipped", "flashcard_sets", "favorites", "sentence_reviews"],
+      ["settings", "learning", "stats", "skipped", "flashcard_sets", "favorites", "sentence_reviews", "word_exposure"],
       "readwrite"
     );
     for (const name of t.objectStoreNames) t.objectStore(name).clear();

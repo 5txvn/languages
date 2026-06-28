@@ -82,6 +82,8 @@
     }
     .game-sentence-card { width: 100%; padding: 2rem 1.5rem; }
     .game-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem; }
+    .game-controls .btn-game { display: inline-flex; align-items: center; gap: .4rem; }
+    .game-controls .game-btn-icon { font-size: .9rem; line-height: 1; }
     .game-hint-text { margin: 0; text-align: center; font-size: .75rem; color: var(--muted); line-height: 1.4; }
     .game-article { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; text-align: left; }
     .settings-modal-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
@@ -251,7 +253,12 @@
       .game-sentence-card { padding: 1.35rem 1rem; }
       .game-header { padding: .75rem 1rem; flex-shrink: 0; }
       .game-controls { gap: .5rem; }
-      .game-controls .btn-game { min-height: 2.35rem; padding: .45rem .75rem; font-size: .8rem; }
+      .game-controls .btn-game {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-height: 2.35rem; min-width: 2.75rem; padding: .45rem .55rem; font-size: .8rem;
+      }
+      .game-controls .game-btn-label { display: none; }
+      .game-controls .game-btn-icon { font-size: 1rem; line-height: 1; }
       .game-hint-text { display: none; }
       .game-actions {
         position: fixed; left: 0; right: 0; bottom: 0; transform: none;
@@ -730,10 +737,18 @@
           <p id="game-translation" class="mt-5 text-center text-base italic" style="color:var(--muted)"></p>
         </div>
         <div class="game-controls">
-          <button id="btn-play-sentence" type="button" class="btn-ghost btn-game hidden">Play sentence</button>
-          <button id="btn-accents" type="button" class="btn-ghost btn-game">Accents</button>
-          <button id="btn-hint" type="button" class="btn-ghost btn-game">Hint</button>
-          <button id="btn-submit" type="button" class="btn-primary btn-game">Check</button>
+          <button id="btn-play-sentence" type="button" class="btn-ghost btn-game hidden" title="Play sentence" aria-label="Play sentence">
+            <i class="fa-solid fa-volume-high game-btn-icon" aria-hidden="true"></i><span class="game-btn-label">Play sentence</span>
+          </button>
+          <button id="btn-accents" type="button" class="btn-ghost btn-game" title="Accents" aria-label="Accents">
+            <i class="fa-solid fa-keyboard game-btn-icon" aria-hidden="true"></i><span class="game-btn-label">Accents</span>
+          </button>
+          <button id="btn-hint" type="button" class="btn-ghost btn-game" title="Hint" aria-label="Hint">
+            <i class="fa-solid fa-lightbulb game-btn-icon" aria-hidden="true"></i><span class="game-btn-label">Hint</span>
+          </button>
+          <button id="btn-submit" type="button" class="btn-primary btn-game" title="Check" aria-label="Check">
+            <i class="fa-solid fa-check game-btn-icon" aria-hidden="true"></i><span class="game-btn-label">Check</span>
+          </button>
         </div>
         <p id="game-hint-text" class="game-hint-text">Press Enter To Check · ? For Hint · Highlight Any Word</p>
       </div>
@@ -827,6 +842,14 @@
           <span class="font-semibold">Speech & sound feedback in practice</span>
         </label>
         <p class="mt-1 pl-7 text-xs" style="color:var(--muted)">Plays tones on correct/wrong, reads the sentence after a correct answer, and lets you replay audio from the play button or highlighted words.</p>
+      </div>
+      <div class="mt-5 border-t pt-4" style="border-color:var(--border)">
+        <p class="text-sm font-semibold">Pronunciation</p>
+        <label class="mt-3 block text-sm">
+          <span class="font-semibold">Speech rate: <span id="tts-rate-label" class="font-mono">0.92</span></span>
+          <input id="tts-rate" type="range" class="mt-2 w-full" min="0.7" max="1.2" step="0.05" value="0.92" />
+        </label>
+        <div id="tts-locale-settings" class="mt-4 space-y-3"></div>
       </div>
     </div>
   </div>

@@ -1,6 +1,6 @@
 /** Browser speech synthesis + short feedback tones for practice. */
 
-const SPEECH_LOCALE = {
+const DEFAULT_LOCALE = {
   es: "es-ES",
   pt: "pt-PT",
   fr: "fr-FR",
@@ -12,8 +12,53 @@ const SPEECH_LOCALE = {
   ru: "ru-RU",
 };
 
+export const TTS_VARIANTS = {
+  pt: [
+    { locale: "pt-PT", label: "Portugal" },
+    { locale: "pt-BR", label: "Brazil" },
+  ],
+  es: [
+    { locale: "es-ES", label: "Spain" },
+    { locale: "es-MX", label: "Mexico" },
+    { locale: "es-419", label: "Latin America" },
+  ],
+  en: [
+    { locale: "en-GB", label: "United Kingdom" },
+    { locale: "en-US", label: "United States" },
+  ],
+  fr: [
+    { locale: "fr-FR", label: "France" },
+    { locale: "fr-CA", label: "Canada" },
+  ],
+  de: [
+    { locale: "de-DE", label: "Germany" },
+    { locale: "de-AT", label: "Austria" },
+    { locale: "de-CH", label: "Switzerland" },
+  ],
+  it: [{ locale: "it-IT", label: "Italy" }],
+  nl: [{ locale: "nl-NL", label: "Netherlands" }],
+  pl: [{ locale: "pl-PL", label: "Poland" }],
+  ru: [{ locale: "ru-RU", label: "Russia" }],
+};
+
+let ttsLocales = {};
+let ttsRate = 0.92;
+
 let audioCtx = null;
 let speechEpoch = 0;
+
+export function configureTts({ locales = {}, rate } = {}) {
+  if (locales && typeof locales === "object") ttsLocales = { ...locales };
+  if (rate != null && !Number.isNaN(+rate)) ttsRate = +rate;
+}
+
+export function localeForLang(langCode) {
+  return ttsLocales[langCode] || DEFAULT_LOCALE[langCode] || langCode;
+}
+
+export function speechRate() {
+  return ttsRate;
+}
 
 function getAudioCtx() {
   if (!audioCtx) {
@@ -62,18 +107,30 @@ export function stopSpeech() {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
 }
 
-export function speakText(text, langCode, { rate = 0.92 } = {}) {
+function pickVoice(locale) {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const exact = voices.find((v) => v.lang === locale);
+  if (exact) return exact;
+  const prefix = locale.slice(0, 2);
+  const regional = voices.find((v) => v.lang.replace("_", "-").startsWith(locale));
+  if (regional) return regional;
+  return voices.find((v) => v.lang.startsWith(prefix)) ?? null;
+}
+
+export function speakText(text, langCode, { rate } = {}) {
   if (!text || !window.speechSynthesis) return Promise.resolve();
   resumeAudio();
   const epoch = speechEpoch;
+  const locale = localeForLang(langCode);
+  const utterRate = rate ?? ttsRate;
   return new Promise((resolve) => {
     window.speechSynthesis.cancel();
-    const voices = window.speechSynthesis.getVoices();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = SPEECH_LOCALE[langCode] || langCode;
-    utter.rate = rate;
-    const preferred = voices.find((v) => v.lang.startsWith(utter.lang.slice(0, 2)));
-    if (preferred) utter.voice = preferred;
+    utter.lang = locale;
+    utter.rate = utterRate;
+    const voice = pickVoice(locale);
+    if (voice) utter.voice = voice;
     const done = () => {
       if (epoch === speechEpoch) resolve();
     };
@@ -84,13 +141,13 @@ export function speakText(text, langCode, { rate = 0.92 } = {}) {
 }
 
 export function speakSentence(text, langCode) {
-  return speakText(text, langCode, { rate: 0.95 });
+  return speakText(text, langCode, { rate: Math.min(1.05, ttsRate + 0.03) });
 }
 
 export function speakWord(word, langCode) {
   const w = word?.trim();
   if (!w) return Promise.resolve();
-  return speakText(w, langCode, { rate: 0.9 });
+  return speakText(w, langCode, { rate: ttsRate });
 }
 
 export async function feedbackCorrect(sentence, langCode) {

@@ -3,7 +3,9 @@
 export const WORD_PATTERN = /\b[\wáéíóúüñÁÉÍÓÚÜÑàèéìòùäöüßąćęłńóśźżА-яЁё'-]+\b/gu;
 export const ZIPF_MIN = 3.0;
 export const ZIPF_MAX = 8.0;
-export const TARGET_COUNT = 20000;
+/** @deprecated Prefer loading the full corpus via streamAllSentences. */
+export const TARGET_COUNT = Infinity;
+export const CORPUS_STATS_VERSION = 2;
 
 /** Zipf ranges — descriptions are language-neutral. */
 export const DIFFICULTY_PRESETS = [
@@ -22,21 +24,36 @@ export function assetUrl(relative) {
   return new URL(ASSET_BASE + path, window.location.href).href;
 }
 
-/** Legacy sentence filenames before {code}_sentences.txt rename. */
+/** Supported sentence corpora (files: `{lang}_{corpus}.txt`). */
+export const CORPUS_OPTIONS = [
+  { id: "wiki", label: "Wikipedia" },
+  { id: "movies", label: "Movies" },
+];
+
+/** Legacy filenames for older installs / bookmarks. */
 export const LEGACY_SENTENCE_FILES = {
-  es: "spanish.txt",
-  pt: "portuguese.txt",
-  de: "german.txt",
-  fr: "french.txt",
-  it: "italian.txt",
-  en: "english.txt",
-  nl: "dutch.txt",
-  pl: "polish.txt",
-  ru: "russian.txt",
+  es: ["es_sentences.txt", "spanish.txt"],
+  pt: ["pt_sentences.txt", "portuguese.txt"],
+  de: ["de_sentences.txt", "german.txt"],
+  fr: ["fr_sentences.txt", "french.txt"],
+  it: ["it_sentences.txt", "italian.txt"],
+  en: ["en_sentences.txt", "english.txt"],
+  nl: ["nl_sentences.txt", "dutch.txt"],
+  pl: ["pl_sentences.txt", "polish.txt"],
+  ru: ["ru_sentences.txt", "russian.txt"],
 };
 
-export function sentenceFilename(langCode) {
-  return `${langCode}_sentences.txt`;
+export function sentenceFilename(langCode, corpus = "wiki") {
+  return `${langCode}_${corpus}.txt`;
+}
+
+export function corpusStatsFilename(langCode, corpus = "wiki") {
+  return `${langCode}_${corpus}.json`;
+}
+
+export function legacyFallbacks(langCode, corpus = "wiki") {
+  if (corpus !== "wiki") return [];
+  return LEGACY_SENTENCE_FILES[langCode] ?? [`${langCode}_sentences.txt`];
 }
 
 /** Resolve data file — works from site root (index.html + assets/). */
@@ -58,10 +75,12 @@ export async function resolveDataUrl(filename, { fallbacks = [], required = true
   throw new Error(`Could not find data/${filename}`);
 }
 
-export const FILTER_WORD_MIN = 5;
-export const FILTER_WORD_MAX = 15;
-export const FILTER_AVG_ZIPF_MIN = 4.9;
-export const FILTER_AVG_ZIPF_MAX = 6.5;
+export const FILTER_WORD_MIN = 1;
+export const FILTER_WORD_MAX = 40;
+export const FILTER_AVG_ZIPF_MIN = 2.5;
+export const FILTER_AVG_ZIPF_MAX = 8.0;
+/** Minimum tokens needed for a fill-in-the-blank puzzle. */
+export const MIN_PUZZLE_WORDS = 1;
 
 export const DEFAULT_SENTENCE_FILTERS = {
   enabled: false,
@@ -158,10 +177,16 @@ export function blankWordAllowed(
   word,
   lang,
   lemmaMap,
-  { sessionBlankKeys = null, wordExposure = null, maxExposure = MAX_BLANK_WORD_EXPOSURE } = {}
+  {
+    sessionBlankKeys = null,
+    wordExposure = null,
+    maxExposure = MAX_BLANK_WORD_EXPOSURE,
+    blockedWordKeys = null,
+  } = {}
 ) {
   const key = blankWordDedupKey(word, lang, lemmaMap);
   if (sessionBlankKeys?.has(key)) return false;
+  if (blockedWordKeys?.has(key)) return false;
   if ((wordExposure?.[key] ?? 0) >= maxExposure) return false;
   return true;
 }
@@ -235,15 +260,21 @@ export function sentencePassesFilters(
   zipfDict,
   lemmaMap,
   corpusStats = null,
-  lineIndex = null
+  lineIndex = null,
+  precomputed = null
 ) {
   if (!filters?.enabled) return true;
-  const positioned = tokenizeWithPositions(sentence);
-  const wc = positioned.length;
+  const wc =
+    precomputed?.wordCount ??
+    (lineIndex != null && corpusStats?.wordCountByLine?.[lineIndex] != null
+      ? corpusStats.wordCountByLine[lineIndex]
+      : tokenizeWithPositions(sentence).length);
   if (filters.minWords != null && wc < filters.minWords) return false;
   if (filters.maxWords != null && wc > filters.maxWords) return false;
   if (filters.minAvgZipf != null || filters.maxAvgZipf != null) {
-    const avg = sentenceAvgZipfForFilter(sentence, lineIndex, lang, zipfDict, lemmaMap, corpusStats);
+    const avg =
+      precomputed?.avgZipf ??
+      sentenceAvgZipfForFilter(sentence, lineIndex, lang, zipfDict, lemmaMap, corpusStats);
     if (avg == null) return false;
     if (filters.minAvgZipf != null && avg < filters.minAvgZipf) return false;
     if (filters.maxAvgZipf != null && avg > filters.maxAvgZipf) return false;
@@ -440,7 +471,7 @@ export function effectiveZipf(word, lang, zipfDict, lemmaMap) {
 
 export function zipfInRange(word, lo, hi, lang, zipfDict, lemmaMap) {
   const z = effectiveZipf(word, lang, zipfDict, lemmaMap);
-  return z >= lo && z < hi;
+  return z >= lo && z <= hi;
 }
 
 export function eligibleBlankIndices(tokens, lo, hi, lang, zipfDict, lemmaMap) {
@@ -461,15 +492,168 @@ export async function loadZipfDict(lang) {
   return await res.json();
 }
 
-/** Per-sentence avg Zipf + histogram from the sentence corpus (see scripts/build_corpus_stats.py). */
-export async function loadCorpusStats(lang) {
-  try {
-    const res = await fetch(assetUrl(`corpus-stats/${lang}.json`));
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+/** Per-sentence avg Zipf + word counts (static file, IndexedDB cache, or computed live). */
+export async function loadCorpusStats(lang, corpus = "wiki") {
+  const names = [corpusStatsFilename(lang, corpus)];
+  if (corpus === "wiki") names.push(`${lang}.json`);
+  for (const name of names) {
+    try {
+      const res = await fetch(assetUrl(`corpus-stats/${name}`));
+      if (!res.ok) continue;
+      const data = await res.json();
+      data.source = "file";
+      return data;
+    } catch {
+      /* try next */
+    }
   }
+  return null;
+}
+
+export function corpusStatsId(lang, corpus) {
+  return `${lang}:${corpus}`;
+}
+
+export function corpusFingerprint(lang, corpus, byteLength, sentenceCount) {
+  return `${lang}|${corpus}|${byteLength}|${sentenceCount}|v${CORPUS_STATS_VERSION}`;
+}
+
+export function statsMatchFingerprint(stats, fingerprint, sentenceCount) {
+  if (!stats) return false;
+  if (stats.fingerprint && stats.fingerprint === fingerprint) return true;
+  if (
+    stats.totalSentences === sentenceCount &&
+    Array.isArray(stats.avgZipfByLine) &&
+    stats.avgZipfByLine.length === sentenceCount &&
+    Array.isArray(stats.wordCountByLine) &&
+    stats.wordCountByLine.length === sentenceCount
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildHistogramFromValues(values, bins = 24) {
+  if (!values.length) return [];
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  if (hi <= lo) return [{ lo: +lo.toFixed(2), hi: +hi.toFixed(2), count: values.length }];
+  const width = (hi - lo) / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of values) {
+    const idx = Math.min(bins - 1, Math.floor((v - lo) / width));
+    counts[idx] += 1;
+  }
+  return counts.map((count, i) => ({
+    lo: +(lo + i * width).toFixed(2),
+    hi: +(lo + (i + 1) * width).toFixed(2),
+    count,
+  }));
+}
+
+function buildWordHistogram(wordCounts) {
+  if (!wordCounts.length) return [];
+  const lo = Math.min(...wordCounts);
+  const hi = Math.max(...wordCounts);
+  const hist = [];
+  for (let w = lo; w <= hi; w++) {
+    let count = 0;
+    for (const c of wordCounts) if (c === w) count += 1;
+    hist.push({ words: w, count });
+  }
+  return hist;
+}
+
+/** Compute per-sentence word counts + avg Zipf; annotates sentence entries in place. */
+export function buildCorpusStatsFromSentences(sentences, lang, zipfDict, lemmaMap, corpus = "wiki") {
+  const avgZipfByLine = [];
+  const wordCountByLine = [];
+  const avgValues = [];
+  const wordValues = [];
+
+  for (const entry of sentences) {
+    const text = sentenceText(entry);
+    const positioned = tokenizeWithPositions(text);
+    const wc = positioned.length;
+    const avg = sentenceAverageZipf(text, lang, zipfDict, lemmaMap);
+    const idx = sentenceLineIndex(entry);
+    if (idx != null) {
+      avgZipfByLine[idx] = avg;
+      wordCountByLine[idx] = wc;
+    }
+    entry.wordCount = wc;
+    entry.avgZipf = avg;
+    if (wc > 0) {
+      avgValues.push(avg);
+      wordValues.push(wc);
+    }
+  }
+
+  const total = wordValues.length;
+  return {
+    langCode: lang,
+    corpus,
+    statsVersion: CORPUS_STATS_VERSION,
+    minAvgZipf: avgValues.length ? +Math.min(...avgValues).toFixed(2) : FILTER_AVG_ZIPF_MIN,
+    maxAvgZipf: avgValues.length ? +Math.max(...avgValues).toFixed(2) : FILTER_AVG_ZIPF_MAX,
+    minWords: wordValues.length ? Math.min(...wordValues) : FILTER_WORD_MIN,
+    maxWords: wordValues.length ? Math.max(...wordValues) : FILTER_WORD_MAX,
+    totalSentences: total,
+    histogram: buildHistogramFromValues(avgValues),
+    wordHistogram: buildWordHistogram(wordValues),
+    avgZipfByLine,
+    wordCountByLine,
+    source: "computed",
+  };
+}
+
+/** Attach cached/file stats onto sentence entries for consistent filtering. */
+export function annotateSentencesFromStats(sentences, corpusStats) {
+  if (!corpusStats?.wordCountByLine || !corpusStats?.avgZipfByLine) return;
+  for (const entry of sentences) {
+    const idx = sentenceLineIndex(entry);
+    if (idx == null) continue;
+    if (corpusStats.wordCountByLine[idx] != null) entry.wordCount = corpusStats.wordCountByLine[idx];
+    if (corpusStats.avgZipfByLine[idx] != null) entry.avgZipf = corpusStats.avgZipfByLine[idx];
+  }
+}
+
+/** Count sentences in corpus stats that match the active length + avg-Zipf filters. */
+export function countMatchingSentences(corpusStats, filters) {
+  if (!corpusStats) return 0;
+  const avgs = corpusStats.avgZipfByLine;
+  const words = corpusStats.wordCountByLine;
+  const total = corpusStats.totalSentences ?? avgs?.length ?? 0;
+  if (!filters?.enabled) return total;
+  if (!words?.length && !avgs?.length) return 0;
+
+  const n = Math.max(avgs?.length ?? 0, words?.length ?? 0);
+  let matched = 0;
+  for (let i = 0; i < n; i++) {
+    const wc = words?.[i];
+    const avg = avgs?.[i];
+    if (wc == null && avg == null) continue;
+    if (wc != null) {
+      if (filters.minWords != null && wc < filters.minWords) continue;
+      if (filters.maxWords != null && wc > filters.maxWords) continue;
+    }
+    if (avg != null) {
+      if (filters.minAvgZipf != null && avg < filters.minAvgZipf) continue;
+      if (filters.maxAvgZipf != null && avg > filters.maxAvgZipf) continue;
+    }
+    matched += 1;
+  }
+  return matched;
+}
+
+/** Bounds for filter sliders from corpus stats (falls back to defaults). */
+export function corpusFilterBounds(corpusStats) {
+  return {
+    minWords: corpusStats?.minWords ?? FILTER_WORD_MIN,
+    maxWords: corpusStats?.maxWords ?? FILTER_WORD_MAX,
+    minAvgZipf: corpusStats?.minAvgZipf ?? FILTER_AVG_ZIPF_MIN,
+    maxAvgZipf: corpusStats?.maxAvgZipf ?? FILTER_AVG_ZIPF_MAX,
+  };
 }
 
 export function puzzleKey(puzzle) {
@@ -488,18 +672,28 @@ export function indexZipfPuzzles(
   skippedSet,
   filters,
   corpusStats,
-  { sessionBlankKeys = null, wordExposure = null, maxExposure = MAX_BLANK_WORD_EXPOSURE } = {}
+  {
+    sessionBlankKeys = null,
+    wordExposure = null,
+    maxExposure = MAX_BLANK_WORD_EXPOSURE,
+    blockedWordKeys = null,
+  } = {}
 ) {
   const puzzles = [];
   for (const entry of sentences) {
     if (isSkipped(entry, skippedSet)) continue;
     const sentence = sentenceText(entry);
     const lineIndex = sentenceLineIndex(entry);
-    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)) {
+    if (
+      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex, {
+        wordCount: entry.wordCount,
+        avgZipf: entry.avgZipf,
+      })
+    ) {
       continue;
     }
     const positioned = tokenizeWithPositions(sentence);
-    if (positioned.length < 5) continue;
+    if (positioned.length < MIN_PUZZLE_WORDS) continue;
     const texts = positioned.map((t) => t.text);
     const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
     for (const blankIndex of candidates) {
@@ -509,6 +703,7 @@ export function indexZipfPuzzles(
           sessionBlankKeys,
           wordExposure,
           maxExposure,
+          blockedWordKeys,
         })
       ) {
         continue;
@@ -527,8 +722,14 @@ export function indexZipfPuzzles(
 
 export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
   if (!pool?.length) return null;
-  const { lang, lemmaMap, sessionBlankKeys, wordExposure, maxExposure = MAX_BLANK_WORD_EXPOSURE } =
-    wordOpts;
+  const {
+    lang,
+    lemmaMap,
+    sessionBlankKeys,
+    wordExposure,
+    maxExposure = MAX_BLANK_WORD_EXPOSURE,
+    blockedWordKeys = null,
+  } = wordOpts;
   let available = pool.filter((p) => {
     if (usedKeys.has(puzzleKey(p))) return false;
     if (lang && lemmaMap) {
@@ -536,6 +737,7 @@ export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
         sessionBlankKeys,
         wordExposure,
         maxExposure,
+        blockedWordKeys,
       });
     }
     return true;
@@ -548,6 +750,7 @@ export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
           sessionBlankKeys,
           wordExposure,
           maxExposure,
+          blockedWordKeys,
         });
       }
       return true;
@@ -569,7 +772,10 @@ export async function loadLemmaMap(lang) {
   }
 }
 
-export async function streamSentences(url, maxStore, onProgress) {
+export async function streamSentences(url, maxStore = Infinity, onProgress) {
+  if (!Number.isFinite(maxStore)) {
+    return streamAllSentences(url, onProgress);
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Could not load sentences (${res.status})`);
   const total = Number(res.headers.get("Content-Length")) || 0;
@@ -620,7 +826,7 @@ export async function streamSentences(url, maxStore, onProgress) {
       buffer = buffer.slice(idx + 1);
     }
   }
-  return { lines, lang };
+  return { lines, lang, byteLength: total || bytesRead };
 }
 
 /** Load every sentence from the data file (no reservoir sampling). */
@@ -668,7 +874,7 @@ export async function streamAllSentences(url, onProgress) {
       buffer = buffer.slice(idx + 1);
     }
   }
-  return { lines, lang };
+  return { lines, lang, byteLength: total || bytesRead };
 }
 
 function isSkipped(entry, skippedSet) {
@@ -703,11 +909,16 @@ export function buildPuzzle(
     if (isSkipped(entry, skippedSet)) continue;
     const sentence = sentenceText(entry);
     const lineIndex = sentenceLineIndex(entry);
-    if (!sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)) {
+    if (
+      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex, {
+        wordCount: entry.wordCount,
+        avgZipf: entry.avgZipf,
+      })
+    ) {
       continue;
     }
     const positioned = tokenizeWithPositions(sentence);
-    if (positioned.length < 5) continue;
+    if (positioned.length < MIN_PUZZLE_WORDS) continue;
     const texts = positioned.map((t) => t.text);
     const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
     const allowed = candidates.filter((i) =>
@@ -748,12 +959,15 @@ export function indexFlashcardPuzzles(
     const lineIndex = sentenceLineIndex(entry);
     if (
       filters?.enabled &&
-      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex)
+      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex, {
+        wordCount: entry.wordCount,
+        avgZipf: entry.avgZipf,
+      })
     ) {
       continue;
     }
     const positioned = tokenizeWithPositions(sentence);
-    if (positioned.length < 4) continue;
+    if (positioned.length < MIN_PUZZLE_WORDS) continue;
     for (let j = 0; j < positioned.length; j++) {
       const tok = positioned[j].text;
       const key = tok.toLowerCase();

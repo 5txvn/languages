@@ -7,6 +7,7 @@ import {
   estimateTokenZipf,
   isSentenceContentToken,
   sentencePassesFilters,
+  blankWordAllowed,
 } from "./game.js";
 
 export function articlesFilename(langCode) {
@@ -76,7 +77,8 @@ export function buildArticlePuzzle(
   zipfDict,
   lemmaMap,
   filters = null,
-  corpusStats = null
+  corpusStats = null,
+  wordOpts = null
 ) {
   const sentences = splitArticleSentences(article.text);
   for (let si = cursor; si < sentences.length; si++) {
@@ -85,7 +87,9 @@ export function buildArticlePuzzle(
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < 4) continue;
     const texts = positioned.map((t) => t.text);
-    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
+    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap).filter((i) =>
+      blankWordAllowed(positioned[i].text, lang, lemmaMap, wordOpts ?? {})
+    );
     if (!candidates.length) continue;
     const blankIndex = candidates[Math.floor(Math.random() * candidates.length)];
     return {

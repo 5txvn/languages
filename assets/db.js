@@ -3,13 +3,29 @@
 import { LEARNED_THRESHOLD, nextReviewAfterCorrect, nextReviewAfterWrong } from "./srs.js";
 
 const DB_NAME = "lang-practice";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
+
+let dbPromise = null;
 
 function openDb() {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error || new Error("IndexedDB open failed"));
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onblocked = () => {
+      console.warn("IndexedDB upgrade blocked — close other tabs of this app.");
+    };
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       const tx = e.target.transaction;
@@ -43,6 +59,9 @@ function openDb() {
         const exp = db.createObjectStore("word_exposure", { keyPath: "id" });
         exp.createIndex("langCode", "langCode", { unique: false });
       }
+      if (!db.objectStoreNames.contains("corpus_stats")) {
+        db.createObjectStore("corpus_stats", { keyPath: "id" });
+      }
 
       if (e.oldVersion < 2 && db.objectStoreNames.contains("stats")) {
         const statsStore = tx.objectStore("stats");
@@ -63,6 +82,7 @@ function openDb() {
       }
     };
   });
+  return dbPromise;
 }
 
 export function sentenceId(langCode, sentence) {
@@ -408,6 +428,24 @@ export async function getSentenceReviews(langCode) {
   });
 }
 
+export async function getActiveReviews(langCode, { skippedSet = null } = {}) {
+  const skipped = skippedSet ?? (await getSkippedSet(langCode));
+  const all = await getSentenceReviews(langCode);
+  return all
+    .filter((r) => {
+      if (r.learned) return false;
+      if (r.lineIndex != null && skipped.indices?.has(r.lineIndex)) return false;
+      const norm = r.sentence?.trim().normalize("NFC");
+      if (norm && skipped.sentences?.has(norm)) return false;
+      return true;
+    })
+    .sort((a, b) => (a.nextReviewAt ?? 0) - (b.nextReviewAt ?? 0));
+}
+
+export async function countActiveReviews(langCode) {
+  return (await getActiveReviews(langCode)).length;
+}
+
 export async function getDueReviews(langCode, { includeLearned = false, skippedSet = null } = {}) {
   const skipped = skippedSet ?? (await getSkippedSet(langCode));
   const all = await getSentenceReviews(langCode);
@@ -534,14 +572,49 @@ export async function incrementWordExposure(langCode, wordKey) {
   return count;
 }
 
+export async function getCachedCorpusStats(id) {
+  try {
+    const db = await openDb();
+    if (!db.objectStoreNames.contains("corpus_stats")) return null;
+    return await new Promise((resolve, reject) => {
+      const t = db.transaction("corpus_stats", "readonly");
+      const req = t.objectStore("corpus_stats").get(id);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedCorpusStats(record) {
+  try {
+    const db = await openDb();
+    if (!db.objectStoreNames.contains("corpus_stats")) return;
+    await tx("corpus_stats", "readwrite", (os) => {
+      os.put(record);
+    });
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 export async function clearAllData() {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const t = db.transaction(
-      ["settings", "learning", "stats", "skipped", "flashcard_sets", "favorites", "sentence_reviews", "word_exposure"],
-      "readwrite"
-    );
-    for (const name of t.objectStoreNames) t.objectStore(name).clear();
+    const names = [
+      "settings",
+      "learning",
+      "stats",
+      "skipped",
+      "flashcard_sets",
+      "favorites",
+      "sentence_reviews",
+      "word_exposure",
+      "corpus_stats",
+    ].filter((n) => db.objectStoreNames.contains(n));
+    const t = db.transaction(names, "readwrite");
+    for (const name of names) t.objectStore(name).clear();
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });

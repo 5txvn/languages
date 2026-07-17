@@ -270,8 +270,7 @@
       .game-actions .btn-game-bar { min-width: 2.85rem; width: 2.85rem; height: 2.85rem; padding: 0; }
       .game-actions .action-label { display: none !important; }
       .game-actions .action-icon { display: inline-block !important; }
-      #menu-zipf-custom { scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
-      #btn-custom-start { scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+      #menu-session-opts { scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
       .scroll-end-spacer { height: 2rem; flex-shrink: 0; }
       .hub-grid { gap: .5rem; }
       .hub-tile-feature { min-height: 9.5rem; }
@@ -346,6 +345,9 @@
     html.theme-rugged #lookup-chat-area,
     html.theme-rugged #word-tooltip,
     html.theme-rugged input[type="checkbox"],
+    html.theme-rugged .custom-select-btn,
+    html.theme-rugged .custom-select-menu,
+    html.theme-rugged .custom-select-option,
     html.theme-rugged .select-field,
     html.theme-rugged .blocky-input,
     html.theme-rugged .game-progress-bar,
@@ -394,23 +396,43 @@
     .activity-card:hover { border-color: var(--primary); box-shadow: 0 4px 16px rgba(0,0,0,.06); }
     .activity-icon { width: 2.5rem; height: 2.5rem; border-radius: .75rem; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; background: color-mix(in srgb, var(--primary) 10%, white); }
     .activity-card.primary .activity-icon { background: color-mix(in srgb, var(--primary) 18%, white); }
-    .select-field {
-      appearance: none; -webkit-appearance: none;
-      accent-color: var(--primary);
-      background-color: var(--card);
-      color: var(--text);
+    .custom-select { position: relative; width: 100%; }
+    .custom-select-btn {
+      width: 100%; text-align: left; appearance: none; -webkit-appearance: none;
+      background-color: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: .5rem;
+      padding: .5rem 2.25rem .5rem .75rem; font-size: .875rem; line-height: 1.25rem;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b6b70' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right .85rem center; padding-right: 2.25rem !important;
-      transition: border-color .15s, box-shadow .15s;
+      background-repeat: no-repeat; background-position: right .85rem center;
+      cursor: pointer; transition: border-color .15s, box-shadow .15s;
     }
-    .select-field:focus { border-color: var(--primary) !important; outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
-    .select-field option { background: var(--card); color: var(--text); padding: .35rem .5rem; }
-    .select-field option:checked,
-    .select-field option:hover,
-    .select-field option:focus { background: var(--primary); color: #fff; }
-    @supports (-moz-appearance: none) {
-      .select-field option:checked { background-color: var(--primary); }
+    .custom-select-btn:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
+    .custom-select-menu {
+      display: none; position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + .25rem);
+      max-height: 14rem; overflow: auto; border-radius: .5rem; border: 1px solid var(--border);
+      background: var(--card); box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: .25rem;
     }
+    .custom-select.open .custom-select-menu { display: block; }
+    .custom-select-option {
+      width: 100%; text-align: left; border: 0; background: transparent; color: var(--text);
+      border-radius: .375rem; padding: .45rem .65rem; font-size: .875rem; cursor: pointer;
+    }
+    .custom-select-option:hover,
+    .custom-select-option:focus {
+      background: color-mix(in srgb, var(--primary) 16%, transparent);
+      color: var(--text);
+      outline: none;
+    }
+    .custom-select-option.is-selected {
+      background: var(--primary);
+      color: #fff;
+    }
+    .custom-select-option.is-selected:hover,
+    .custom-select-option.is-selected:focus {
+      background: var(--primary);
+      color: #fff;
+    }
+    .select-field.is-enhanced { position: absolute !important; opacity: 0 !important; pointer-events: none !important; width: 1px !important; height: 1px !important; }
     .game-progress-wrap { display: flex; flex-direction: column; align-items: center; gap: .25rem; min-width: 0; width: 100%; max-width: 18rem; }
     .game-progress-bar { width: 100%; height: 7px; border-radius: 9999px; background: var(--border); overflow: hidden; }
     .game-progress-fill { height: 100%; background: var(--hot); border-radius: 9999px; transition: width .25s ease; }
@@ -440,8 +462,13 @@
     .preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
     .preset-tile { cursor: pointer; transition: border-color .15s; }
     .preset-tile:hover { border-color: var(--primary); }
+    .preset-tile.disabled { opacity: .45; pointer-events: none; }
     .preset-tile .preset-range { font-family: ui-monospace, monospace; font-size: .7rem; color: var(--muted); }
     .preset-tile .preset-desc { display: none; }
+    .preset-tile-custom { grid-column: 1 / -1; cursor: default; }
+    .preset-tile-custom:hover { border-color: var(--border); }
+    .preset-tile-custom .btn-custom-start { cursor: pointer; }
+    .preset-tile-custom .btn-custom-start:hover { color: var(--primary); }
     .filter-fields.disabled { opacity: .45; pointer-events: none; }
     .article-row { display: flex; align-items: center; gap: .75rem; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); cursor: pointer; text-align: left; width: 100%; }
     .article-row:hover { border-color: var(--primary); }
@@ -624,17 +651,26 @@
     </header>
     <div class="scroll-panel px-5 pb-8">
       <div class="mx-auto w-full max-w-lg">
-        <div class="card p-4">
-          <label class="text-xs font-semibold" style="color:var(--muted)">Questions</label>
-          <select id="question-limit" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)">
-            <option value="0" selected>Infinite</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="200">200</option>
-          </select>
+        <div id="menu-session-opts" class="card p-4 space-y-4">
+          <div id="menu-corpus-pick">
+            <label class="text-xs font-semibold" style="color:var(--muted)" for="corpus-select">Sentences from</label>
+            <select id="corpus-select" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)">
+              <option value="wiki">Wikipedia</option>
+              <option value="movies">Movies</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold" style="color:var(--muted)">Questions</label>
+            <select id="question-limit" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)">
+              <option value="0" selected>Infinite</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
         </div>
 
         <div id="menu-article-pick" class="card hidden p-4">
@@ -643,24 +679,11 @@
         </div>
 
         <div id="menu-zipf-section" class="mt-4">
-          <h2 id="menu-presets-heading" class="text-sm font-semibold">Word difficulty</h2>
-          <div id="preset-grid" class="preset-grid mt-2"></div>
-
-          <div class="card mt-6 p-5" id="menu-zipf-custom">
-            <div class="flex items-center gap-2">
-              <h2 class="text-sm font-semibold">Custom Zipf Range</h2>
-              <button id="btn-zipf-help" type="button" class="btn-icon" title="What is Zipf?">?</button>
-            </div>
-            <p id="slider-label" class="mt-1 font-mono text-sm" style="color:var(--muted)">5.5 – 6.0</p>
-            <div class="range-wrap mt-2">
-              <div class="range-track"></div>
-              <div id="range-fill" class="range-fill"></div>
-              <input id="zipf-lo" type="range" min="3" max="8" step="0.1" value="5.5" />
-              <input id="zipf-hi" type="range" min="3" max="8" step="0.1" value="6" />
-            </div>
-            <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Rarer (3)</span><span>Commoner (8)</span></div>
-            <button id="btn-custom-start" type="button" class="btn-primary mt-4 w-full py-3 text-sm">Start Custom</button>
+          <div class="flex items-center gap-2">
+            <h2 id="menu-presets-heading" class="text-sm font-semibold">Word difficulty</h2>
+            <button id="btn-zipf-help" type="button" class="btn-icon" title="What is Zipf?">?</button>
           </div>
+          <div id="preset-grid" class="preset-grid mt-2"></div>
         </div>
 
         <div id="menu-flashcard-section" class="mt-4 hidden">
@@ -683,6 +706,7 @@
               <span class="mt-0.5 block text-xs" style="color:var(--muted)">Off by default. When on, skips long or vocabulary-heavy sentences so the blank matches your level.</span>
             </span>
           </label>
+          <p id="filter-match-count" class="mt-3 text-sm font-medium" style="color:var(--primary)">—</p>
           <div id="filter-sentences-fields" class="filter-fields disabled mt-4 space-y-5">
             <div>
               <label class="text-xs font-semibold" style="color:var(--muted)">Words per sentence: <span id="filter-words-label" class="font-mono">5 – 15</span></label>
@@ -692,18 +716,17 @@
                 <input id="filter-words-lo" type="range" min="5" max="15" step="1" value="5" />
                 <input id="filter-words-hi" type="range" min="5" max="15" step="1" value="15" />
               </div>
-              <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Shorter</span><span>Longer</span></div>
+              <div class="flex justify-between text-xs" style="color:var(--muted)"><span id="filter-words-min-label">5</span><span id="filter-words-max-label">15</span></div>
             </div>
             <div>
-              <label class="text-xs font-semibold" style="color:var(--muted)">Avg. word commonness (corpus Zipf): <span id="filter-avgzipf-label" class="font-mono">4.9 – 6.5</span></label>
-              <div id="filter-avgzipf-histogram" class="zipf-hist-chart hidden" aria-hidden="true"></div>
+              <label class="text-xs font-semibold" style="color:var(--muted)">Avg. word commonness (Zipf): <span id="filter-avgzipf-label" class="font-mono">4.9 – 6.5</span></label>
               <div class="range-wrap mt-2">
                 <div class="range-track"></div>
                 <div id="filter-avgzipf-fill" class="range-fill"></div>
                 <input id="filter-avgzipf-lo" type="range" min="4.9" max="6.5" step="0.1" value="4.9" />
                 <input id="filter-avgzipf-hi" type="range" min="4.9" max="6.5" step="0.1" value="6.5" />
               </div>
-              <div class="flex justify-between text-xs" style="color:var(--muted)"><span>Harder mix</span><span>Basic mix</span></div>
+              <div class="flex justify-between text-xs" style="color:var(--muted)"><span id="filter-avgzipf-min-label">4.9</span><span id="filter-avgzipf-max-label">6.5</span></div>
             </div>
           </div>
         </div>
@@ -785,6 +808,35 @@
     </header>
     <div class="scroll-panel px-5 pb-8">
       <article id="foundations-content" class="prose-content mx-auto max-w-lg"></article>
+    </div>
+  </section>
+
+  <section id="screen-review" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-review-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Revisit</h2>
+      <span id="review-flag"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg space-y-4">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button id="btn-review-due" type="button" class="card review-action-card px-4 py-4 text-left transition hover:border-[var(--primary)]">
+            <span class="block text-sm font-semibold">Practice due</span>
+            <span class="mt-1 block text-xs" style="color:var(--muted)">Spaced repetition — counts toward mastery</span>
+            <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 due</span>
+          </button>
+          <button id="btn-review-browse" type="button" class="card review-action-card px-4 py-4 text-left transition hover:border-[var(--primary)]">
+            <span class="block text-sm font-semibold">Browse bank</span>
+            <span class="mt-1 block text-xs" style="color:var(--muted)">Cycle all review sentences — no score impact</span>
+            <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 total</span>
+          </button>
+        </div>
+        <div>
+          <p class="text-xs font-semibold" style="color:var(--muted)">Review bank</p>
+          <div id="review-bank-list" class="mt-2 space-y-2"></div>
+          <p id="review-bank-empty" class="hidden mt-6 text-center text-sm" style="color:var(--muted)">No sentences in your review bank yet.</p>
+        </div>
+      </div>
     </div>
   </section>
 

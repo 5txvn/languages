@@ -7,8 +7,7 @@ const TIER_BASE = {
   Medium: 12,
   Challenging: 18,
   Hard: 28,
-  Expert: 40,
-  Custom: 12,
+  Custom: 40,
   Flashcards: 10,
 };
 

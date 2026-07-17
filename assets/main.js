@@ -1,18 +1,19 @@
 import {
   DIFFICULTY_PRESETS,
-  TARGET_COUNT,
+  ZIPF_MIN,
+  ZIPF_MAX,
+  CORPUS_OPTIONS,
+  CORPUS_STATS_VERSION,
   assetUrl,
   resolveDataUrl,
-  LEGACY_SENTENCE_FILES,
+  sentenceFilename,
+  legacyFallbacks,
   DEFAULT_SENTENCE_FILTERS,
-  FILTER_AVG_ZIPF_MIN,
-  FILTER_AVG_ZIPF_MAX,
   wordsMatch,
   prefixMatches,
   loadZipfDict,
   loadCorpusStats,
   loadLemmaMap,
-  streamSentences,
   streamAllSentences,
   buildPuzzle,
   indexZipfPuzzles,
@@ -27,6 +28,13 @@ import {
   blankWordDedupKey,
   puzzleMatchesReported,
   puzzleIsSkipped,
+  countMatchingSentences,
+  corpusFilterBounds,
+  buildCorpusStatsFromSentences,
+  annotateSentencesFromStats,
+  corpusStatsId,
+  corpusFingerprint,
+  statsMatchFingerprint,
 } from "./game.js";
 import { loadArticles, buildArticlePuzzle, articleDifficultyLabel } from "./articles.js";
 import { feedbackCorrect, feedbackWrong, speakWord, speakSentence, stopSpeech, configureTts, TTS_VARIANTS } from "./tts.js";
@@ -84,9 +92,13 @@ import {
   logSentenceAttempt,
   getDueReviews,
   countDueReviews,
+  getActiveReviews,
+  countActiveReviews,
   deleteSentenceReviewForPuzzle,
   getWordExposureMap,
   incrementWordExposure,
+  getCachedCorpusStats,
+  saveCachedCorpusStats,
 } from "./db.js";
 import { LEARNED_THRESHOLD, puzzleFromReview } from "./srs.js";
 
@@ -100,6 +112,7 @@ const state = {
   langLabel: "Spanish",
   country: "es",
   sourceFile: "",
+  corpus: "wiki",
   nativeLang: NATIVE_LANG,
   nativeLabel: NATIVE_LABEL,
   nativeCountry: "gb",
@@ -113,6 +126,7 @@ const state = {
   puzzlePoolUsed: new Set(),
   sessionBlankKeys: new Set(),
   wordExposure: {},
+  blockedWordKeys: new Set(),
   ttsLocales: {},
   ttsRate: 0.92,
   fullVocabLoaded: false,
@@ -279,18 +293,24 @@ function renderTtsLocaleSettings() {
     $sel.val(state.ttsLocales[code] || variants[0].locale);
     $wrap.append($row);
   }
+  enhanceAllSelects($wrap[0]);
 }
 
 async function applyPersistedSentenceFilters(langCode) {
   const s = await getSettings();
   const saved = s?.filtersByLang?.[langCode];
-  if (!saved) return;
+  if (!saved) {
+    applyCorpusStatsToFiltersUI({ resetToBounds: true });
+    syncFilterUI({ persist: false });
+    return;
+  }
   $("#filter-sentences-enable").prop("checked", Boolean(saved.enabled));
+  applyCorpusStatsToFiltersUI({ resetToBounds: false });
   if (saved.minWords != null) $("#filter-words-lo").val(saved.minWords);
   if (saved.maxWords != null) $("#filter-words-hi").val(saved.maxWords);
   if (saved.minAvgZipf != null) $("#filter-avgzipf-lo").val(saved.minAvgZipf);
   if (saved.maxAvgZipf != null) $("#filter-avgzipf-hi").val(saved.maxAvgZipf);
-  applyCorpusStatsToFiltersUI();
+  applyCorpusStatsToFiltersUI({ resetToBounds: false });
   syncFilterUI({ persist: false });
 }
 
@@ -303,7 +323,7 @@ function schedulePersistSentenceFilters() {
 }
 
 async function persistSentenceFilters() {
-  if (!state.lang) return;
+  if (!state.dataLoaded || !state.lang) return;
   const existing = (await getSettings()) ?? {};
   const filters = readSentenceFilters();
   await saveSettings({
@@ -313,12 +333,31 @@ async function persistSentenceFilters() {
 }
 
 function blankWordOpts() {
-  return {
+  const opts = {
     sessionBlankKeys: state.sessionBlankKeys,
     wordExposure: state.wordExposure,
     lang: state.lang,
     lemmaMap: state.lemmaMap,
   };
+  // Freeplay only — flashcards, revisit, and casual browse may use review-bank words.
+  if (state.practiceMode === "zipf" || state.practiceMode === "article") {
+    opts.blockedWordKeys = state.blockedWordKeys;
+  }
+  return opts;
+}
+
+async function refreshBlockedWordKeys() {
+  if (!state.lang) {
+    state.blockedWordKeys = new Set();
+    return;
+  }
+  const reviews = await getActiveReviews(state.lang, { skippedSet: state.skippedSet });
+  const keys = new Set();
+  for (const r of reviews) {
+    if (!r.answer) continue;
+    keys.add(blankWordDedupKey(r.answer, state.lang, state.lemmaMap));
+  }
+  state.blockedWordKeys = keys;
 }
 
 async function trackPuzzleShown(puzzle) {
@@ -362,14 +401,20 @@ async function persistSettings() {
   });
 }
 
-function syncDualRange(loSel, hiSel, fillSel, labelSel, formatLabel) {
+function syncDualRange(loSel, hiSel, fillSel, labelSel, formatLabel, { allowEqual = true } = {}) {
   const $lo = $(loSel);
   const $hi = $(hiSel);
+  const step = +$lo.attr("step") || 1;
   let lo = +$lo.val();
   let hi = +$hi.val();
-  if (lo >= hi) {
-    if (document.activeElement === $lo[0]) hi = lo + (+$lo.attr("step") || 1);
-    else lo = hi - (+$hi.attr("step") || 1);
+  if (allowEqual) {
+    if (lo > hi) {
+      if (document.activeElement === $lo[0]) hi = lo;
+      else lo = hi;
+    }
+  } else if (lo >= hi) {
+    if (document.activeElement === $lo[0]) hi = lo + step;
+    else lo = hi - step;
   }
   $lo.val(lo);
   $hi.val(hi);
@@ -387,14 +432,14 @@ function readSentenceFilters() {
     "#filter-words-hi",
     "#filter-words-fill",
     "#filter-words-label",
-    (lo, hi) => `${lo} – ${hi}`
+    (lo, hi) => (lo === hi ? `${lo}` : `${lo} – ${hi}`)
   );
   const zipf = syncDualRange(
     "#filter-avgzipf-lo",
     "#filter-avgzipf-hi",
     "#filter-avgzipf-fill",
     "#filter-avgzipf-label",
-    (lo, hi) => `${lo.toFixed(1)} – ${hi.toFixed(1)}`
+    (lo, hi) => (lo === hi ? lo.toFixed(1) : `${lo.toFixed(1)} – ${hi.toFixed(1)}`)
   );
   return {
     enabled: true,
@@ -405,53 +450,105 @@ function readSentenceFilters() {
   };
 }
 
-function applyCorpusStatsToFiltersUI() {
-  const stats = state.corpusStats;
-  const min = stats?.minAvgZipf ?? FILTER_AVG_ZIPF_MIN;
-  const max = stats?.maxAvgZipf ?? FILTER_AVG_ZIPF_MAX;
+/** Prefer corpus-stats bounds; otherwise derive from the loaded sentences. */
+function liveFilterBounds() {
+  const fromStats = corpusFilterBounds(state.corpusStats);
+  if (state.corpusStats?.minWords != null && state.corpusStats?.maxWords != null) {
+    return fromStats;
+  }
+  let minWords = Infinity;
+  let maxWords = 0;
+  for (const entry of state.sentences ?? []) {
+    const wc = entry.wordCount ?? tokenizeWordCount(sentenceText(entry));
+    if (!wc) continue;
+    if (wc < minWords) minWords = wc;
+    if (wc > maxWords) maxWords = wc;
+  }
+  if (!Number.isFinite(minWords) || maxWords < minWords) {
+    return fromStats;
+  }
+  return {
+    ...fromStats,
+    minWords,
+    maxWords,
+  };
+}
+
+function tokenizeWordCount(sentence) {
+  return (sentence.match(/\b[\wáéíóúüñÁÉÍÓÚÜÑàèéìòùäöüßąćęłńóśźżА-яЁё'-]+\b/gu) ?? []).length;
+}
+
+function applyCorpusStatsToFiltersUI({ resetToBounds = false } = {}) {
+  const bounds = liveFilterBounds();
+  const { minWords, maxWords, minAvgZipf, maxAvgZipf } = bounds;
+
+  const $wLo = $("#filter-words-lo");
+  const $wHi = $("#filter-words-hi");
+  $wLo.attr({ min: minWords, max: maxWords, step: 1 });
+  $wHi.attr({ min: minWords, max: maxWords, step: 1 });
+  let wLo = resetToBounds ? minWords : +$wLo.val();
+  let wHi = resetToBounds ? maxWords : +$wHi.val();
+  if (Number.isNaN(wLo)) wLo = minWords;
+  if (Number.isNaN(wHi)) wHi = maxWords;
+  if (wLo < minWords) wLo = minWords;
+  if (wHi > maxWords) wHi = maxWords;
+  if (wLo > wHi) {
+    wLo = minWords;
+    wHi = maxWords;
+  }
+  $wLo.val(wLo);
+  $wHi.val(wHi);
+  $("#filter-words-min-label").text(String(minWords));
+  $("#filter-words-max-label").text(String(maxWords));
+  syncDualRange(
+    "#filter-words-lo",
+    "#filter-words-hi",
+    "#filter-words-fill",
+    "#filter-words-label",
+    (a, b) => (a === b ? `${a}` : `${a} – ${b}`)
+  );
+
   const $lo = $("#filter-avgzipf-lo");
   const $hi = $("#filter-avgzipf-hi");
-  $lo.attr({ min, max, step: 0.1 });
-  $hi.attr({ min, max, step: 0.1 });
-  let lo = +$lo.val();
-  let hi = +$hi.val();
-  if (lo < min) lo = min;
-  if (hi > max) hi = max;
-  if (lo >= hi) {
-    lo = min;
-    hi = max;
+  $lo.attr({ min: minAvgZipf, max: maxAvgZipf, step: 0.1 });
+  $hi.attr({ min: minAvgZipf, max: maxAvgZipf, step: 0.1 });
+  let lo = resetToBounds ? minAvgZipf : +$lo.val();
+  let hi = resetToBounds ? maxAvgZipf : +$hi.val();
+  if (Number.isNaN(lo)) lo = minAvgZipf;
+  if (Number.isNaN(hi)) hi = maxAvgZipf;
+  if (lo < minAvgZipf) lo = minAvgZipf;
+  if (hi > maxAvgZipf) hi = maxAvgZipf;
+  if (lo > hi) {
+    lo = minAvgZipf;
+    hi = maxAvgZipf;
   }
   $lo.val(lo);
   $hi.val(hi);
+  $("#filter-avgzipf-min-label").text(minAvgZipf.toFixed(1));
+  $("#filter-avgzipf-max-label").text(maxAvgZipf.toFixed(1));
   syncDualRange(
     "#filter-avgzipf-lo",
     "#filter-avgzipf-hi",
     "#filter-avgzipf-fill",
     "#filter-avgzipf-label",
-    (a, b) => `${a.toFixed(1)} – ${b.toFixed(1)}`
+    (a, b) => (a === b ? a.toFixed(1) : `${a.toFixed(1)} – ${b.toFixed(1)}`)
   );
-  renderAvgZipfHistogram();
+  updateFilterMatchCount();
 }
 
-function renderAvgZipfHistogram() {
-  const $el = $("#filter-avgzipf-histogram").empty();
-  const hist = state.corpusStats?.histogram;
-  if (!hist?.length) {
-    $el.addClass("hidden");
-    return;
-  }
-  $el.removeClass("hidden");
-  const maxCount = Math.max(...hist.map((b) => b.count), 1);
-  for (const bucket of hist) {
-    const pct = Math.max(4, Math.round((bucket.count / maxCount) * 100));
-    $el.append(
-      $("<div>", {
-        class: "zipf-hist-bar",
-        title: `${bucket.lo.toFixed(1)}–${bucket.hi.toFixed(1)}: ${bucket.count} sentences`,
-        css: { height: `${pct}%` },
-      })
-    );
-  }
+function updateFilterMatchCount() {
+  const filters = readSentenceFilters();
+  const total = state.corpusStats?.totalSentences ?? state.sentences?.length ?? 0;
+  const matched = countMatchingSentences(state.corpusStats, filters);
+  const label = filters.enabled
+    ? `${matched.toLocaleString()} of ${total.toLocaleString()} sentences match`
+    : `${total.toLocaleString()} sentences available`;
+  const $el = $("#filter-match-count");
+  $el.text(label);
+  $el.css("color", filters.enabled && matched === 0 ? "var(--danger, #dc2626)" : "var(--primary)");
+  const canStart = !filters.enabled || matched > 0;
+  $("#preset-grid .preset-tile").not(".preset-tile-custom").toggleClass("disabled", !canStart);
+  $("#preset-grid .btn-custom-start").prop("disabled", !canStart).toggleClass("opacity-50", !canStart);
 }
 
 function refreshPuzzlePool() {
@@ -489,6 +586,7 @@ function syncFilterUI({ persist = true } = {}) {
   const enabled = $("#filter-sentences-enable").is(":checked");
   $("#filter-sentences-fields").toggleClass("disabled", !enabled);
   state.sentenceFilters = readSentenceFilters();
+  updateFilterMatchCount();
   if (persist) schedulePersistSentenceFilters();
 }
 
@@ -497,18 +595,22 @@ const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 function syncSliders() {
   const $lo = $("#zipf-lo");
   const $hi = $("#zipf-hi");
+  if (!$lo.length || !$hi.length) return;
   let lo = +$lo.val();
   let hi = +$hi.val();
-  if (lo >= hi) {
-    if (document.activeElement === $lo[0]) hi = lo + 0.1;
-    else lo = hi - 0.1;
+  if (lo > hi) {
+    if (document.activeElement === $lo[0]) hi = lo;
+    else lo = hi;
   }
   $lo.val(lo);
   $hi.val(hi);
   state.zipfLo = lo;
   state.zipfHi = hi;
-  $("#slider-label").text(`${lo.toFixed(1)} – ${hi.toFixed(1)}`);
-  updateRangeFill($lo[0], $hi[0], $("#range-fill")[0]);
+  $("#slider-label").text(
+    lo === hi ? lo.toFixed(1) : `${lo.toFixed(1)} – ${hi.toFixed(1)}`
+  );
+  const fill = $("#range-fill")[0];
+  if (fill) updateRangeFill($lo[0], $hi[0], fill);
 }
 
 function clonePuzzle(puzzle) {
@@ -519,8 +621,8 @@ async function refreshAvailability() {
   await Promise.all(
     state.catalog.map(async (lang) => {
       try {
-        const fallbacks = LEGACY_SENTENCE_FILES[lang.code] ? [LEGACY_SENTENCE_FILES[lang.code]] : [];
-        await resolveDataUrl(lang.file, { fallbacks });
+        const file = lang.file ?? sentenceFilename(lang.code, "wiki");
+        await resolveDataUrl(file, { fallbacks: legacyFallbacks(lang.code, "wiki") });
         lang.available = true;
       } catch {
         lang.available = false;
@@ -529,10 +631,26 @@ async function refreshAvailability() {
   );
 }
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 async function refreshLearningData() {
-  state.learning = await getLearningLanguages();
-  const allStats = await getAllStats();
-  state.stats = Object.fromEntries(allStats.map((s) => [s.code, s]));
+  try {
+    state.learning = await withTimeout(getLearningLanguages(), 4000, "getLearningLanguages");
+    const allStats = await withTimeout(getAllStats(), 4000, "getAllStats");
+    state.stats = Object.fromEntries(allStats.map((s) => [s.code, s]));
+  } catch (err) {
+    console.warn(err);
+    if (!Array.isArray(state.learning)) state.learning = [];
+    if (!state.stats || typeof state.stats !== "object") state.stats = {};
+  }
 }
 
 function renderLangPick(lang, { selected = false, unavailable = false, onClick }) {
@@ -624,54 +742,112 @@ function hubLangAvailable() {
 async function renderLangHub() {
   const st = statRow(state.lang);
   const available = hubLangAvailable();
-  const dueCount = await countDueReviews(state.lang);
+  const [dueCount, activeCount] = await Promise.all([
+    countDueReviews(state.lang),
+    countActiveReviews(state.lang),
+  ]);
   $("#hub-title").text(state.langLabel);
   $("#hub-flag").empty().append(flagEl(state.country, "md"));
   $("#hub-score").text(st.totalScore ?? 0);
   $("#hub-streak").text(st.streak ?? 0);
   $("#hub-coming-soon").toggleClass("hidden", available);
   $(".hub-tile").not("#btn-mode-foundations, #btn-mode-saved, #btn-mode-revisit").toggleClass("disabled", !available);
-  $("#btn-mode-revisit").toggleClass("disabled", dueCount === 0);
+  $("#btn-mode-revisit").toggleClass("disabled", activeCount === 0);
   $("#revisit-due-desc").text(
-    dueCount
-      ? `${dueCount} sentence${dueCount === 1 ? "" : "s"} due · spaced review after mistakes or 2+ hints`
+    activeCount
+      ? `${dueCount} due · ${activeCount} in review bank`
       : "Mistakes and hard words appear here for spaced review"
   );
   if (available) scheduleHubChart();
 }
 
-async function ensureLanguageData(lang) {
-  if (state.dataLoaded && state.lang === lang.code) return;
+async function ensureCorpusStatsForLoaded(lang, corpus, byteLength) {
+  const sentenceCount = state.sentences.length;
+  const fingerprint = corpusFingerprint(lang.code, corpus, byteLength || 0, sentenceCount);
+  const cacheId = corpusStatsId(lang.code, corpus);
+
+  let stats = state.corpusStats;
+  if (statsMatchFingerprint(stats, fingerprint, sentenceCount)) {
+    annotateSentencesFromStats(state.sentences, stats);
+    stats.fingerprint = fingerprint;
+    stats.statsVersion = CORPUS_STATS_VERSION;
+    state.corpusStats = stats;
+    try {
+      await saveCachedCorpusStats({ ...stats, id: cacheId });
+    } catch {
+      /* ignore */
+    }
+    return stats;
+  }
+
+  try {
+    const cached = await getCachedCorpusStats(cacheId);
+    if (cached && statsMatchFingerprint(cached, fingerprint, sentenceCount)) {
+      annotateSentencesFromStats(state.sentences, cached);
+      cached.fingerprint = fingerprint;
+      state.corpusStats = cached;
+      return cached;
+    }
+  } catch {
+    /* ignore cache read errors */
+  }
+
+  setLoadProgress(92, `Indexing ${sentenceCount.toLocaleString()} sentences…`);
+  await new Promise((r) => requestAnimationFrame(r));
+  stats = buildCorpusStatsFromSentences(
+    state.sentences,
+    lang.code,
+    state.zipfDict,
+    state.lemmaMap,
+    corpus
+  );
+  stats.fingerprint = fingerprint;
+  stats.id = cacheId;
+  state.corpusStats = stats;
+  try {
+    await saveCachedCorpusStats(stats);
+  } catch {
+    /* quota / private mode — still usable in memory */
+  }
+  return stats;
+}
+
+async function ensureLanguageData(lang, { corpus = state.corpus || "wiki", force = false } = {}) {
+  if (state.dataLoaded && state.lang === lang.code && state.corpus === corpus && !force) return;
   showScreen("screen-loading");
   setLoadProgress(5, `Loading ${lang.label}…`);
-  const [zipfDict, lemmaMap, corpusStats, sentResult, skipped, sets, wordExposure] = await Promise.all([
+  const sourceFile = sentenceFilename(lang.code, corpus);
+  const [zipfDict, lemmaMap, fileStats, sentResult, skipped, sets, wordExposure] = await Promise.all([
     loadZipfDict(lang.code),
     loadLemmaMap(lang.code),
-    loadCorpusStats(lang.code),
-    resolveDataUrl(lang.file, { fallbacks: LEGACY_SENTENCE_FILES[lang.code] ? [LEGACY_SENTENCE_FILES[lang.code]] : [] })
-      .then((url) => streamSentences(url, TARGET_COUNT, setLoadProgress)),
+    loadCorpusStats(lang.code, corpus),
+    resolveDataUrl(sourceFile, { fallbacks: legacyFallbacks(lang.code, corpus) })
+      .then((url) => streamAllSentences(url, setLoadProgress)),
     getSkippedSet(lang.code),
     getFlashcardSets(lang.code),
     getWordExposureMap(lang.code),
   ]);
-  const { lines, lang: detected } = sentResult;
-  if (!lines.length) throw new Error(`No sentences in ${lang.file}`);
+  const { lines, lang: detected, byteLength } = sentResult;
+  if (!lines.length) throw new Error(`No sentences in ${sourceFile}. Populate the ${corpus} file to practice.`);
   state.langLabel = lang.label;
   state.country = lang.country;
   state.lang = detected ?? lang.code;
-  state.sourceFile = lang.file;
+  state.corpus = corpus;
+  state.sourceFile = sourceFile;
   state.zipfDict = zipfDict;
   state.lemmaMap = lemmaMap;
-  state.corpusStats = corpusStats;
+  state.corpusStats = fileStats;
   state.sentences = lines;
   state.vocabSet = buildVocabSet(lines);
   state.skippedSet = skipped;
   state.wordExposure = wordExposure;
   state.flashcardSets = sets;
   state.dataLoaded = true;
-  applyCorpusStatsToFiltersUI();
+  await ensureCorpusStatsForLoaded(lang, corpus, byteLength);
+  await refreshBlockedWordKeys();
+  applyCorpusStatsToFiltersUI({ resetToBounds: true });
   await applyPersistedSentenceFilters(lang.code);
-  setLoadProgress(100, "Ready");
+  setLoadProgress(100, `Ready — ${lines.length.toLocaleString()} sentences`);
 }
 
 async function openLanguageHub(lang) {
@@ -679,6 +855,7 @@ async function openLanguageHub(lang) {
   state.lang = catalog.code;
   state.langLabel = catalog.label;
   state.country = catalog.country;
+  state.corpus = "wiki";
   applyTheme(catalog.code);
   try {
     if (catalog.available) {
@@ -812,22 +989,63 @@ function readQuestionLimit() {
   return n > 0 ? n : 0;
 }
 
+function populateCorpusSelect() {
+  const $sel = $("#corpus-select").empty();
+  const options = catalogLang(state.lang)?.corpora ?? CORPUS_OPTIONS.map((c) => ({
+    id: c.id,
+    label: c.label,
+    file: sentenceFilename(state.lang, c.id),
+  }));
+  for (const c of options) {
+    $sel.append($("<option>", { value: c.id, text: c.label }));
+  }
+  $sel.val(state.corpus || "wiki");
+  enhanceSelectField($sel[0]);
+}
+
 function renderPracticeMenu() {
   renderMenuHeader();
+  populateCorpusSelect();
   const mode = state.practiceMode;
   const isFlashcard = mode === "flashcard";
   const isArticle = mode === "article";
+  $("#menu-corpus-pick").toggleClass("hidden", isArticle);
+  $("#menu-session-opts").toggleClass("hidden", isArticle);
   $("#menu-zipf-section").toggleClass("hidden", isFlashcard);
   $("#menu-sentence-filters").toggleClass("hidden", isArticle);
   $("#menu-flashcard-section").toggleClass("hidden", !isFlashcard);
   $("#menu-article-pick").toggleClass("hidden", !isArticle);
-  $("#question-limit").closest(".card").toggleClass("hidden", isArticle);
   $("#menu-presets-heading").text(isArticle ? "Blank word difficulty" : "Word difficulty");
   if (isFlashcard && state.activeFlashcardSet) {
     $("#flashcard-set-title").text(state.activeFlashcardSet.name);
   }
   if (isArticle && state.activeArticle) {
     $("#menu-article-title").text(state.activeArticle.title);
+  }
+  renderPresets();
+  updateFilterMatchCount();
+}
+
+async function switchCorpus(corpusId) {
+  if (!corpusId || corpusId === state.corpus) return;
+  const lang = catalogLang(state.lang);
+  if (!lang) return;
+  const previous = state.corpus;
+  try {
+    await ensureLanguageData(lang, { corpus: corpusId, force: true });
+    renderPracticeMenu();
+    showScreen("screen-menu");
+  } catch (err) {
+    state.corpus = previous;
+    $("#corpus-select").val(previous);
+    showToast(err.message || String(err));
+    try {
+      await ensureLanguageData(lang, { corpus: previous, force: true });
+      renderPracticeMenu();
+      showScreen("screen-menu");
+    } catch {
+      showScreen("screen-lang-hub");
+    }
   }
 }
 
@@ -967,6 +1185,7 @@ function renderMenuHeader() {
 function renderPresets() {
   const $grid = $("#preset-grid").empty();
   for (const preset of DIFFICULTY_PRESETS) {
+    if (preset.name === "Expert") continue;
     const $btn = $(`
       <button type="button" class="preset-tile card px-3 py-2 text-left" title="${preset.desc}">
         <span class="block text-sm font-semibold">${preset.name}</span>
@@ -976,10 +1195,45 @@ function renderPresets() {
     `);
     $btn.on("click", () => {
       state.sentenceFilters = readSentenceFilters();
+      if (state.sentenceFilters.enabled && countMatchingSentences(state.corpusStats, state.sentenceFilters) === 0) {
+        showToast("No sentences match these filters.");
+        return;
+      }
       startGame(preset.lo, preset.hi, preset.name);
     });
     $grid.append($btn);
   }
+
+  const lo = state.zipfLo ?? ZIPF_MIN;
+  const hi = state.zipfHi ?? 4.0;
+  const $custom = $(`
+    <div class="preset-tile preset-tile-custom card px-3 py-3 text-left">
+      <button type="button" class="btn-custom-start w-full text-left">
+        <span class="block text-sm font-semibold">Custom</span>
+        <span id="slider-label" class="preset-range mt-0.5 block">${(+lo).toFixed(1)} – ${(+hi).toFixed(1)}</span>
+      </button>
+      <div class="range-wrap mt-3">
+        <div class="range-track"></div>
+        <div id="range-fill" class="range-fill"></div>
+        <input id="zipf-lo" type="range" min="${ZIPF_MIN}" max="${ZIPF_MAX}" step="0.1" value="${lo}" />
+        <input id="zipf-hi" type="range" min="${ZIPF_MIN}" max="${ZIPF_MAX}" step="0.1" value="${hi}" />
+      </div>
+      <div class="mt-1 flex justify-between text-xs" style="color:var(--muted)"><span>${ZIPF_MIN}</span><span>${ZIPF_MAX}</span></div>
+    </div>
+  `);
+  $custom.find(".btn-custom-start").on("click", () => {
+    syncSliders();
+    state.sentenceFilters = readSentenceFilters();
+    if (state.sentenceFilters.enabled && countMatchingSentences(state.corpusStats, state.sentenceFilters) === 0) {
+      showToast("No sentences match these filters.");
+      return;
+    }
+    if (state.practiceMode !== "article") state.practiceMode = "zipf";
+    startGame(state.zipfLo, state.zipfHi, "Custom");
+  });
+  $custom.find("#zipf-lo, #zipf-hi").on("input", syncSliders);
+  $grid.append($custom);
+  syncSliders();
 }
 
 function renderAccentModal() {
@@ -1026,6 +1280,10 @@ function updateGameProgress() {
   $("#game-progress-label").text(`${done} / ${total}`);
 }
 
+function isReviewBankSession() {
+  return state.practiceMode === "revisit" || state.practiceMode === "browse";
+}
+
 function renderGameChrome() {
   const $badge = $("#game-badge").empty();
   $badge.append(flagEl(state.country, "sm"));
@@ -1036,6 +1294,8 @@ function renderGameChrome() {
     modeLabel = state.activeArticle.title;
   } else if (state.practiceMode === "revisit") {
     modeLabel = "Revisit";
+  } else if (state.practiceMode === "browse") {
+    modeLabel = "Browse";
   }
   $badge.append($("<span>", { text: `${state.langLabel} · ${modeLabel}` }));
   const isArticle = state.practiceMode === "article";
@@ -1047,20 +1307,30 @@ function renderGameChrome() {
   }
   $("#game-score").text(String(state.sessionPoints));
   updateGameProgress();
-  if (state.practiceMode === "revisit" && state.revisitQueue.length) {
+  if (isReviewBankSession() && state.revisitQueue.length) {
     const cur = state.revisitQueue[state.revisitIndex];
-    const prog = cur ? ` · ${cur.correctCount ?? 0}/${LEARNED_THRESHOLD} mastered` : "";
-    $("#review-banner").removeClass("hidden").text(
-      `Revisit ${state.revisitIndex + 1} of ${state.revisitQueue.length}${prog}`
-    );
+    if (state.practiceMode === "browse") {
+      $("#review-banner").removeClass("hidden").text(
+        `Browse ${state.revisitIndex + 1} of ${state.revisitQueue.length} · practice only`
+      );
+    } else {
+      const prog = cur ? ` · ${cur.correctCount ?? 0}/${LEARNED_THRESHOLD} mastered` : "";
+      $("#review-banner").removeClass("hidden").text(
+        `Revisit ${state.revisitIndex + 1} of ${state.revisitQueue.length}${prog}`
+      );
+    }
   } else {
     $("#review-banner").toggleClass("hidden", !state.inReview).text(
       state.inReview ? `Review ${state.reviewIndex + 1} of ${state.reviewSessionTotal}` : ""
     );
   }
   if (state.awaitingContinue) {
-    const hintNote = state.lastHintCount ? ` (${state.lastHintCount} hint${state.lastHintCount > 1 ? "s" : ""} used)` : "";
-    $("#game-hint-text").text(`${state.lastPoints} pts${hintNote}! Press Enter To Continue`);
+    if (state.practiceMode === "browse") {
+      $("#game-hint-text").text("Press Enter To Continue");
+    } else {
+      const hintNote = state.lastHintCount ? ` (${state.lastHintCount} hint${state.lastHintCount > 1 ? "s" : ""} used)` : "";
+      $("#game-hint-text").text(`${state.lastPoints} pts${hintNote}! Press Enter To Continue`);
+    }
   }
   else if (state.revealed) $("#game-hint-text").text("Press Enter To Continue");
   else $("#game-hint-text").text("Press Enter To Check · ? For Hint · Highlight Any Word");
@@ -1178,6 +1448,16 @@ async function onCorrect() {
   if (state.awaitingContinue || state.revealed) return;
   state.awaitingContinue = true;
   stopSpeech();
+
+  if (state.practiceMode === "browse") {
+    renderGameChrome();
+    refreshSentence();
+    if (state.enableTts) {
+      feedbackCorrect(state.puzzle.sentence, state.lang).catch(() => {});
+    }
+    return;
+  }
+
   const pts = pointsForAnswer(
     state.puzzle.answer,
     state.levelName,
@@ -1205,6 +1485,7 @@ async function onCorrect() {
   if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex] && reviewRow) {
     state.revisitQueue[state.revisitIndex] = reviewRow;
   }
+  await refreshBlockedWordKeys();
   renderGameChrome();
   refreshSentence();
   if (state.enableTts) {
@@ -1215,9 +1496,17 @@ async function onCorrect() {
 }
 
 async function onWrong() {
+  if (state.practiceMode === "browse") {
+    state.revealed = true;
+    renderGameChrome();
+    refreshSentence();
+    if (state.enableTts) feedbackWrong();
+    return;
+  }
+
   if (
     !state.inReview &&
-    state.practiceMode !== "revisit" &&
+    !isReviewBankSession() &&
     state.puzzle &&
     !puzzleIsSkipped(state.puzzle, state.skippedSet)
   ) {
@@ -1236,6 +1525,7 @@ async function onWrong() {
   if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex]) {
     state.revisitQueue[state.revisitIndex] = reviewRow;
   }
+  await refreshBlockedWordKeys();
   state.revealed = true;
   renderGameChrome();
   refreshSentence();
@@ -1335,7 +1625,7 @@ async function advanceQuestion() {
   advancingQuestion = true;
   stopSpeech();
   try {
-  if (state.practiceMode === "revisit") {
+  if (isReviewBankSession()) {
     if (state.awaitingContinue) {
       state.revisitIndex += 1;
       resetInput();
@@ -1392,9 +1682,9 @@ function bumpQuestionCount() {
 
 async function loadRevisitPuzzle() {
   if (state.revisitIndex >= state.revisitQueue.length) {
-    showToast("Revisit session complete.");
-    await renderLangHub();
-    showScreen("screen-lang-hub");
+    showToast(state.practiceMode === "browse" ? "Browse complete." : "Revisit session complete.");
+    await refreshBlockedWordKeys();
+    await openReviewScreen();
     return;
   }
   while (
@@ -1404,14 +1694,63 @@ async function loadRevisitPuzzle() {
     state.revisitIndex += 1;
   }
   if (state.revisitIndex >= state.revisitQueue.length) {
-    showToast("Revisit session complete.");
-    await renderLangHub();
-    showScreen("screen-lang-hub");
+    showToast(state.practiceMode === "browse" ? "Browse complete." : "Revisit session complete.");
+    await refreshBlockedWordKeys();
+    await openReviewScreen();
     return;
   }
   state.puzzle = puzzleFromReview(state.revisitQueue[state.revisitIndex]);
   await trackPuzzleShown(state.puzzle);
   await loadTranslation();
+}
+
+function formatReviewDue(nextReviewAt) {
+  const now = Date.now();
+  const t = nextReviewAt ?? 0;
+  if (t <= now) return "Due now";
+  const ms = t - now;
+  const hours = Math.round(ms / (60 * 60 * 1000));
+  if (hours < 48) return `In ${Math.max(1, hours)}h`;
+  const days = Math.round(hours / 24);
+  return `In ${days}d`;
+}
+
+async function openReviewScreen() {
+  const reviews = await getActiveReviews(state.lang, { skippedSet: state.skippedSet });
+  const now = Date.now();
+  const due = reviews.filter((r) => (r.nextReviewAt ?? 0) <= now);
+  $("#review-flag").empty().append(flagEl(state.country, "md"));
+  $("#btn-review-due")
+    .prop("disabled", due.length === 0)
+    .toggleClass("opacity-50", due.length === 0)
+    .find(".review-action-count")
+    .text(due.length ? `${due.length} due` : "None due");
+  $("#btn-review-browse")
+    .prop("disabled", reviews.length === 0)
+    .toggleClass("opacity-50", reviews.length === 0)
+    .find(".review-action-count")
+    .text(`${reviews.length} total`);
+
+  const $list = $("#review-bank-list").empty();
+  $("#review-bank-empty").toggleClass("hidden", reviews.length > 0);
+  for (const row of reviews) {
+    const isDue = (row.nextReviewAt ?? 0) <= now;
+    const blank = row.answer ? ` (${row.answer})` : "";
+    const $row = $(`
+      <div class="saved-row">
+        <div class="min-w-0 flex-1">
+          <p class="saved-row-text"></p>
+          <p class="mt-1 text-xs" style="color:var(--muted)">
+            <span class="font-semibold" style="color:${isDue ? "var(--primary)" : "var(--muted)"}">${formatReviewDue(row.nextReviewAt)}</span>
+            · ${row.correctCount ?? 0}/5 mastered${blank}
+          </p>
+        </div>
+      </div>
+    `);
+    $row.find(".saved-row-text").text(row.sentence);
+    $list.append($row);
+  }
+  showScreen("screen-review");
 }
 
 async function startRevisitPractice() {
@@ -1434,10 +1773,30 @@ async function startRevisitPractice() {
   showScreen("screen-game");
 }
 
+async function startBrowsePractice() {
+  const all = await getActiveReviews(state.lang, { skippedSet: state.skippedSet });
+  if (!all.length) return showToast("No sentences in your review bank.");
+  state.practiceMode = "browse";
+  state.revisitQueue = all;
+  state.revisitIndex = 0;
+  state.sessionPoints = 0;
+  state.questionLimit = 0;
+  state.questionsAnswered = 0;
+  state.wrongQueue = [];
+  state.inReview = false;
+  state.reviewItems = [];
+  state.levelName = "Browse";
+  resetInput();
+  applyTheme(state.lang);
+  renderGameChrome();
+  await loadRevisitPuzzle();
+  showScreen("screen-game");
+}
+
 async function startNormalRound() {
   resetInput();
   let puzzle = null;
-  if (state.practiceMode === "revisit") {
+  if (isReviewBankSession()) {
     await loadRevisitPuzzle();
     return;
   }
@@ -1461,7 +1820,8 @@ async function startNormalRound() {
       state.zipfDict,
       state.lemmaMap,
       state.sentenceFilters,
-      state.corpusStats
+      state.corpusStats,
+      blankWordOpts()
     );
     if (!puzzle) {
       showToast(`Finished "${state.activeArticle.title}".`);
@@ -1574,6 +1934,14 @@ async function startGame(lo, hi, name) {
   state.reviewSessionTotal = 0;
   state.sessionBlankKeys = new Set();
   state.sentenceFilters = readSentenceFilters();
+  if (
+    state.sentenceFilters.enabled &&
+    countMatchingSentences(state.corpusStats, state.sentenceFilters) === 0
+  ) {
+    showToast("No sentences match these filters.");
+    return;
+  }
+  await refreshBlockedWordKeys();
   if (state.practiceMode === "zipf") {
     state.questionLimit = readQuestionLimit();
     state.questionsAnswered = 0;
@@ -1706,6 +2074,7 @@ async function renderSavedScreen(fromHub = false) {
     state.savedLang = state.learning[0].code;
   }
   if (state.savedLang) $pick.val(state.savedLang);
+  enhanceSelectField($pick[0]);
   $(".saved-tab").removeClass("active").filter(`[data-tab="${state.savedTab}"]`).addClass("active");
   await refreshSavedList();
 }
@@ -1753,7 +2122,7 @@ async function refreshSavedList() {
   const langCode = $("#saved-lang-pick").val() || state.savedLang;
   if (!langCode) return;
   state.savedLang = langCode;
-  const lang = catalogLang(langCode) ?? { label: langCode, file: `${langCode}_sentences.txt` };
+  const lang = catalogLang(langCode) ?? { label: langCode, file: sentenceFilename(langCode, "wiki") };
   const $list = $("#saved-list").empty();
   $("#saved-empty").addClass("hidden");
 
@@ -1768,15 +2137,15 @@ async function refreshSavedList() {
     return;
   }
 
-  const legacy = LEGACY_SENTENCE_FILES[langCode];
-  const sourceFile = lang.file ?? `${langCode}_sentences.txt`;
+  const wikiFile = lang.file ?? sentenceFilename(langCode, "wiki");
+  const legacy = legacyFallbacks(langCode, "wiki");
   for (const row of rows) {
     const lineIndex = row.lineIndex;
     let text = row.sentence ?? null;
     if (!text && lineIndex != null) {
       try {
-        text = await fetchSentenceAtIndex(sourceFile, lineIndex)
-          ?? (legacy ? await fetchSentenceAtIndex(legacy, lineIndex) : null);
+        text = await fetchSentenceAtIndex(row.sourceFile || wikiFile, lineIndex)
+          ?? (legacy.length ? await fetchSentenceAtIndex(legacy[0], lineIndex) : null);
       } catch {
         text = null;
       }
@@ -1915,6 +2284,7 @@ async function openAddFlashcardModal(word) {
     for (const s of state.flashcardSets) $sel.append(`<option value="${s.id}">${s.name} (${s.words.length})</option>`);
   }
   openModal("modal-add-flashcard");
+  enhanceSelectField($("#flashcard-set-pick")[0]);
 }
 
 async function sendChatMessage() {
@@ -1973,14 +2343,84 @@ function setupLookupResizer() {
 }
 
 async function routeAfterLoad() {
-  await renderHome();
   showScreen("screen-home");
+  try {
+    await renderHome();
+  } catch (err) {
+    console.error(err);
+    showToast(err?.message || "Could not load your languages.");
+  }
+}
+
+function syncCustomSelect($sel) {
+  const $wrap = $sel.data("customSelect");
+  if (!$wrap || $sel.data("syncingCustomSelect")) return;
+  $sel.data("syncingCustomSelect", true);
+  try {
+    const $btn = $wrap.find(".custom-select-btn");
+    const $menu = $wrap.find(".custom-select-menu").empty();
+    const selected = $sel.find("option:selected");
+    $btn.text(selected.text() || "—");
+    $sel.find("option").each(function () {
+      const val = $(this).attr("value");
+      const text = $(this).text();
+      const isSelected = $(this).is(":selected");
+      const $opt = $(`<button type="button" class="custom-select-option${isSelected ? " is-selected" : ""}"></button>`);
+      $opt.text(text);
+      $opt.on("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const prev = $sel.val();
+        $sel.val(val);
+        $wrap.removeClass("open");
+        syncCustomSelect($sel);
+        if (prev !== val) $sel.trigger("change");
+      });
+      $menu.append($opt);
+    });
+  } finally {
+    $sel.data("syncingCustomSelect", false);
+  }
+}
+
+function enhanceSelectField(el) {
+  const $sel = $(el);
+  if (!$sel.length) return;
+  if ($sel.data("enhanced")) {
+    syncCustomSelect($sel);
+    return;
+  }
+  $sel.addClass("is-enhanced").data("enhanced", true);
+  const $wrap = $(`<div class="custom-select mt-1 w-full"></div>`);
+  const $btn = $(`<button type="button" class="custom-select-btn"></button>`);
+  const $menu = $(`<div class="custom-select-menu" role="listbox"></div>`);
+  $sel.after($wrap);
+  $wrap.append($btn, $menu);
+  $sel.data("customSelect", $wrap);
+  $btn.on("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wasOpen = $wrap.hasClass("open");
+    $(".custom-select").removeClass("open");
+    if (!wasOpen) $wrap.addClass("open");
+  });
+  $sel.on("change.customSelect", () => {
+    if (!$sel.data("syncingCustomSelect")) syncCustomSelect($sel);
+  });
+  syncCustomSelect($sel);
+}
+
+function enhanceAllSelects(root = document) {
+  $(root).find("select.select-field").each(function () {
+    enhanceSelectField(this);
+  });
 }
 
 async function init() {
   applyTheme(null, true);
   bindModalDismiss();
   setupLookupResizer();
+  $(document).on("click", () => $(".custom-select").removeClass("open"));
   showScreen("screen-loading");
   try {
     const res = await fetch(assetUrl("languages.json"));
@@ -1988,21 +2428,27 @@ async function init() {
     state.catalog = await res.json();
     await refreshAvailability();
     await loadPersistedSettings();
-    syncFilterUI();
+    syncFilterUI({ persist: false });
     setLoadProgress(100, "Ready");
     await routeAfterLoad();
+    enhanceAllSelects();
   } catch (err) {
+    console.error(err);
     $("#error-message").text(err.message || String(err));
     showScreen("screen-error");
   }
 }
 
 // Events
-$("#btn-add-language").on("click", async () => {
-  await refreshLearningData();
+$("#btn-add-language").on("click", () => {
   $("#add-lang-search").val("");
   renderAddLangGrid();
   openModal("modal-add-lang");
+  refreshLearningData()
+    .then(() => {
+      if ($("#modal-add-lang").hasClass("open")) renderAddLangGrid();
+    })
+    .catch(() => {});
 });
 
 $("#add-lang-search").on("input", renderAddLangGrid);
@@ -2026,7 +2472,20 @@ $("#btn-mode-foundations").on("click", () => {
 });
 
 $("#btn-mode-revisit").on("click", () => {
-  startRevisitPractice().catch((e) => showToast(e.message || "Could not start revisit."));
+  openReviewScreen().catch((e) => showToast(e.message || "Could not open review."));
+});
+
+$("#btn-review-back").on("click", async () => {
+  await renderLangHub();
+  showScreen("screen-lang-hub");
+});
+
+$("#btn-review-due").on("click", () => {
+  startRevisitPractice().catch((e) => showToast(e.message || "Could not start review."));
+});
+
+$("#btn-review-browse").on("click", () => {
+  startBrowsePractice().catch((e) => showToast(e.message || "Could not start browse."));
 });
 
 $("#btn-foundations-back").on("click", () => {
@@ -2085,13 +2544,15 @@ $("#btn-back-hub").on("click", () => {
   else { renderLangHub(); showScreen("screen-lang-hub"); }
 });
 $("#btn-back-menu").on("click", () => {
-  if (state.practiceMode === "flashcard") {
-    renderPracticeMenu();
-    showScreen("screen-menu");
-  } else {
-    renderPracticeMenu();
-    showScreen("screen-menu");
+  if (isReviewBankSession()) {
+    openReviewScreen().catch(() => {
+      renderLangHub();
+      showScreen("screen-lang-hub");
+    });
+    return;
   }
+  renderPracticeMenu();
+  showScreen("screen-menu");
 });
 $("#btn-flashcard-start").on("click", startFlashcardPractice);
 $("#btn-download-set").on("click", () => {
@@ -2184,14 +2645,14 @@ $("#review-interval").on("change", async () => {
   state.reviewInterval = Math.max(3, Math.min(30, +$("#review-interval").val() || 10));
   await persistSettings();
 });
-$("#btn-custom-start").on("click", () => {
-  syncSliders();
-  state.sentenceFilters = readSentenceFilters();
-  if (state.practiceMode !== "article") state.practiceMode = "zipf";
-  startGame(state.zipfLo, state.zipfHi, "Custom");
-});
 $("#filter-sentences-enable").on("change", syncFilterUI);
 $("#filter-words-lo, #filter-words-hi, #filter-avgzipf-lo, #filter-avgzipf-hi").on("input", syncFilterUI);
+$("#corpus-select").on("change", async function () {
+  if (!$("#screen-menu").hasClass("active")) return;
+  if (!state.dataLoaded) return;
+  const next = $(this).val();
+  await switchCorpus(next);
+});
 $("#setting-tts").on("change", async () => {
   state.enableTts = $("#setting-tts").is(":checked");
   await persistSettings();

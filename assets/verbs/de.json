@@ -1,0 +1,79 @@
+{
+  "lang": "de",
+  "pronouns": [
+    { "id": "ich", "label": "ich" },
+    { "id": "du", "label": "du" },
+    { "id": "er", "label": "er/sie/es" },
+    { "id": "wir", "label": "wir" },
+    { "id": "ihr", "label": "ihr" },
+    { "id": "sie", "label": "sie/Sie" }
+  ],
+  "tenseLabels": {
+    "present": "Präsens",
+    "preterite": "Präteritum",
+    "perfect": "Perfekt",
+    "future": "Futur I"
+  },
+  "verbs": [
+    {
+      "infinitive": "sprechen",
+      "gloss": "to speak",
+      "conjugations": {
+        "present": { "ich": "spreche", "du": "sprichst", "er": "spricht", "wir": "sprechen", "ihr": "sprecht", "sie": "sprechen" },
+        "preterite": { "ich": "sprach", "du": "sprachst", "er": "sprach", "wir": "sprachen", "ihr": "spracht", "sie": "sprachen" },
+        "perfect": { "ich": "habe gesprochen", "du": "hast gesprochen", "er": "hat gesprochen", "wir": "haben gesprochen", "ihr": "habt gesprochen", "sie": "haben gesprochen" },
+        "future": { "ich": "werde sprechen", "du": "wirst sprechen", "er": "wird sprechen", "wir": "werden sprechen", "ihr": "werdet sprechen", "sie": "werden sprechen" }
+      }
+    },
+    {
+      "infinitive": "sein",
+      "gloss": "to be",
+      "conjugations": {
+        "present": { "ich": "bin", "du": "bist", "er": "ist", "wir": "sind", "ihr": "seid", "sie": "sind" },
+        "preterite": { "ich": "war", "du": "warst", "er": "war", "wir": "waren", "ihr": "wart", "sie": "waren" },
+        "perfect": { "ich": "bin gewesen", "du": "bist gewesen", "er": "ist gewesen", "wir": "sind gewesen", "ihr": "seid gewesen", "sie": "sind gewesen" },
+        "future": { "ich": "werde sein", "du": "wirst sein", "er": "wird sein", "wir": "werden sein", "ihr": "werdet sein", "sie": "werden sein" }
+      }
+    },
+    {
+      "infinitive": "haben",
+      "gloss": "to have",
+      "conjugations": {
+        "present": { "ich": "habe", "du": "hast", "er": "hat", "wir": "haben", "ihr": "habt", "sie": "haben" },
+        "preterite": { "ich": "hatte", "du": "hattest", "er": "hatte", "wir": "hatten", "ihr": "hattet", "sie": "hatten" },
+        "perfect": { "ich": "habe gehabt", "du": "hast gehabt", "er": "hat gehabt", "wir": "haben gehabt", "ihr": "habt gehabt", "sie": "haben gehabt" },
+        "future": { "ich": "werde haben", "du": "wirst haben", "er": "wird haben", "wir": "werden haben", "ihr": "werdet haben", "sie": "werden haben" }
+      }
+    },
+    {
+      "infinitive": "gehen",
+      "gloss": "to go",
+      "conjugations": {
+        "present": { "ich": "gehe", "du": "gehst", "er": "geht", "wir": "gehen", "ihr": "geht", "sie": "gehen" },
+        "preterite": { "ich": "ging", "du": "gingst", "er": "ging", "wir": "gingen", "ihr": "gingt", "sie": "gingen" },
+        "perfect": { "ich": "bin gegangen", "du": "bist gegangen", "er": "ist gegangen", "wir": "sind gegangen", "ihr": "seid gegangen", "sie": "sind gegangen" },
+        "future": { "ich": "werde gehen", "du": "wirst gehen", "er": "wird gehen", "wir": "werden gehen", "ihr": "werdet gehen", "sie": "werden gehen" }
+      }
+    },
+    {
+      "infinitive": "machen",
+      "gloss": "to do / make",
+      "conjugations": {
+        "present": { "ich": "mache", "du": "machst", "er": "macht", "wir": "machen", "ihr": "macht", "sie": "machen" },
+        "preterite": { "ich": "machte", "du": "machtest", "er": "machte", "wir": "machten", "ihr": "machtet", "sie": "machten" },
+        "perfect": { "ich": "habe gemacht", "du": "hast gemacht", "er": "hat gemacht", "wir": "haben gemacht", "ihr": "habt gemacht", "sie": "haben gemacht" },
+        "future": { "ich": "werde machen", "du": "wirst machen", "er": "wird machen", "wir": "werden machen", "ihr": "werdet machen", "sie": "werden machen" }
+      }
+    },
+    {
+      "infinitive": "kommen",
+      "gloss": "to come",
+      "conjugations": {
+        "present": { "ich": "komme", "du": "kommst", "er": "kommt", "wir": "kommen", "ihr": "kommt", "sie": "kommen" },
+        "preterite": { "ich": "kam", "du": "kamst", "er": "kam", "wir": "kamen", "ihr": "kamt", "sie": "kamen" },
+        "perfect": { "ich": "bin gekommen", "du": "bist gekommen", "er": "ist gekommen", "wir": "sind gekommen", "ihr": "seid gekommen", "sie": "sind gekommen" },
+        "future": { "ich": "werde kommen", "du": "wirst kommen", "er": "wird kommen", "wir": "werden kommen", "ihr": "werdet kommen", "sie": "werden kommen" }
+      }
+    }
+  ]
+}

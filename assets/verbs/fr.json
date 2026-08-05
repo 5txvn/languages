@@ -1,0 +1,79 @@
+{
+  "lang": "fr",
+  "pronouns": [
+    { "id": "je", "label": "je" },
+    { "id": "tu", "label": "tu" },
+    { "id": "il", "label": "il/elle" },
+    { "id": "nous", "label": "nous" },
+    { "id": "vous", "label": "vous" },
+    { "id": "ils", "label": "ils/elles" }
+  ],
+  "tenseLabels": {
+    "present": "Présent",
+    "passeCompose": "Passé composé",
+    "imparfait": "Imparfait",
+    "future": "Futur simple"
+  },
+  "verbs": [
+    {
+      "infinitive": "parler",
+      "gloss": "to speak",
+      "conjugations": {
+        "present": { "je": "parle", "tu": "parles", "il": "parle", "nous": "parlons", "vous": "parlez", "ils": "parlent" },
+        "passeCompose": { "je": "ai parlé", "tu": "as parlé", "il": "a parlé", "nous": "avons parlé", "vous": "avez parlé", "ils": "ont parlé" },
+        "imparfait": { "je": "parlais", "tu": "parlais", "il": "parlait", "nous": "parlions", "vous": "parliez", "ils": "parlaient" },
+        "future": { "je": "parlerai", "tu": "parleras", "il": "parlera", "nous": "parlerons", "vous": "parlerez", "ils": "parleront" }
+      }
+    },
+    {
+      "infinitive": "être",
+      "gloss": "to be",
+      "conjugations": {
+        "present": { "je": "suis", "tu": "es", "il": "est", "nous": "sommes", "vous": "êtes", "ils": "sont" },
+        "passeCompose": { "je": "ai été", "tu": "as été", "il": "a été", "nous": "avons été", "vous": "avez été", "ils": "ont été" },
+        "imparfait": { "je": "étais", "tu": "étais", "il": "était", "nous": "étions", "vous": "étiez", "ils": "étaient" },
+        "future": { "je": "serai", "tu": "seras", "il": "sera", "nous": "serons", "vous": "serez", "ils": "seront" }
+      }
+    },
+    {
+      "infinitive": "avoir",
+      "gloss": "to have",
+      "conjugations": {
+        "present": { "je": "ai", "tu": "as", "il": "a", "nous": "avons", "vous": "avez", "ils": "ont" },
+        "passeCompose": { "je": "ai eu", "tu": "as eu", "il": "a eu", "nous": "avons eu", "vous": "avez eu", "ils": "ont eu" },
+        "imparfait": { "je": "avais", "tu": "avais", "il": "avait", "nous": "avions", "vous": "aviez", "ils": "avaient" },
+        "future": { "je": "aurai", "tu": "auras", "il": "aura", "nous": "aurons", "vous": "aurez", "ils": "auront" }
+      }
+    },
+    {
+      "infinitive": "aller",
+      "gloss": "to go",
+      "conjugations": {
+        "present": { "je": "vais", "tu": "vas", "il": "va", "nous": "allons", "vous": "allez", "ils": "vont" },
+        "passeCompose": { "je": "suis allé", "tu": "es allé", "il": "est allé", "nous": "sommes allés", "vous": "êtes allés", "ils": "sont allés" },
+        "imparfait": { "je": "allais", "tu": "allais", "il": "allait", "nous": "allions", "vous": "alliez", "ils": "allaient" },
+        "future": { "je": "irai", "tu": "iras", "il": "ira", "nous": "irons", "vous": "irez", "ils": "iront" }
+      }
+    },
+    {
+      "infinitive": "faire",
+      "gloss": "to do / make",
+      "conjugations": {
+        "present": { "je": "fais", "tu": "fais", "il": "fait", "nous": "faisons", "vous": "faites", "ils": "font" },
+        "passeCompose": { "je": "ai fait", "tu": "as fait", "il": "a fait", "nous": "avons fait", "vous": "avez fait", "ils": "ont fait" },
+        "imparfait": { "je": "faisais", "tu": "faisais", "il": "faisait", "nous": "faisions", "vous": "faisiez", "ils": "faisaient" },
+        "future": { "je": "ferai", "tu": "feras", "il": "fera", "nous": "ferons", "vous": "ferez", "ils": "feront" }
+      }
+    },
+    {
+      "infinitive": "venir",
+      "gloss": "to come",
+      "conjugations": {
+        "present": { "je": "viens", "tu": "viens", "il": "vient", "nous": "venons", "vous": "venez", "ils": "viennent" },
+        "passeCompose": { "je": "suis venu", "tu": "es venu", "il": "est venu", "nous": "sommes venus", "vous": "êtes venus", "ils": "sont venus" },
+        "imparfait": { "je": "venais", "tu": "venais", "il": "venait", "nous": "venions", "vous": "veniez", "ils": "venaient" },
+        "future": { "je": "viendrai", "tu": "viendras", "il": "viendra", "nous": "viendrons", "vous": "viendrez", "ils": "viendront" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "lang": "es",
+  "pronouns": [
+    { "id": "yo", "label": "yo" },
+    { "id": "tu", "label": "tú" },
+    { "id": "el", "label": "él/ella/usted" },
+    { "id": "nosotros", "label": "nosotros" },
+    { "id": "vosotros", "label": "vosotros" },
+    { "id": "ellos", "label": "ellos/ellas/ustedes" }
+  ],
+  "tenseLabels": {
+    "present": "Presente",
+    "preterite": "Pretérito",
+    "imperfect": "Imperfecto",
+    "future": "Futuro"
+  },
+  "verbs": [
+    {
+      "infinitive": "hablar",
+      "gloss": "to speak",
+      "conjugations": {
+        "present": { "yo": "hablo", "tu": "hablas", "el": "habla", "nosotros": "hablamos", "vosotros": "habláis", "ellos": "hablan" },
+        "preterite": { "yo": "hablé", "tu": "hablaste", "el": "habló", "nosotros": "hablamos", "vosotros": "hablasteis", "ellos": "hablaron" },
+        "imperfect": { "yo": "hablaba", "tu": "hablabas", "el": "hablaba", "nosotros": "hablábamos", "vosotros": "hablabais", "ellos": "hablaban" },
+        "future": { "yo": "hablaré", "tu": "hablarás", "el": "hablará", "nosotros": "hablaremos", "vosotros": "hablaréis", "ellos": "hablarán" }
+      }
+    },
+    {
+      "infinitive": "comer",
+      "gloss": "to eat",
+      "conjugations": {
+        "present": { "yo": "como", "tu": "comes", "el": "come", "nosotros": "comemos", "vosotros": "coméis", "ellos": "comen" },
+        "preterite": { "yo": "comí", "tu": "comiste", "el": "comió", "nosotros": "comimos", "vosotros": "comisteis", "ellos": "comieron" },
+        "imperfect": { "yo": "comía", "tu": "comías", "el": "comía", "nosotros": "comíamos", "vosotros": "comíais", "ellos": "comían" },
+        "future": { "yo": "comeré", "tu": "comerás", "el": "comerá", "nosotros": "comeremos", "vosotros": "comeréis", "ellos": "comerán" }
+      }
+    },
+    {
+      "infinitive": "vivir",
+      "gloss": "to live",
+      "conjugations": {
+        "present": { "yo": "vivo", "tu": "vives", "el": "vive", "nosotros": "vivimos", "vosotros": "vivís", "ellos": "viven" },
+        "preterite": { "yo": "viví", "tu": "viviste", "el": "vivió", "nosotros": "vivimos", "vosotros": "vivisteis", "ellos": "vivieron" },
+        "imperfect": { "yo": "vivía", "tu": "vivías", "el": "vivía", "nosotros": "vivíamos", "vosotros": "vivíais", "ellos": "vivían" },
+        "future": { "yo": "viviré", "tu": "vivirás", "el": "vivirá", "nosotros": "viviremos", "vosotros": "viviréis", "ellos": "vivirán" }
+      }
+    },
+    {
+      "infinitive": "ser",
+      "gloss": "to be (essence)",
+      "conjugations": {
+        "present": { "yo": "soy", "tu": "eres", "el": "es", "nosotros": "somos", "vosotros": "sois", "ellos": "son" },
+        "preterite": { "yo": "fui", "tu": "fuiste", "el": "fue", "nosotros": "fuimos", "vosotros": "fuisteis", "ellos": "fueron" },
+        "imperfect": { "yo": "era", "tu": "eras", "el": "era", "nosotros": "éramos", "vosotros": "erais", "ellos": "eran" },
+        "future": { "yo": "seré", "tu": "serás", "el": "será", "nosotros": "seremos", "vosotros": "seréis", "ellos": "serán" }
+      }
+    },
+    {
+      "infinitive": "estar",
+      "gloss": "to be (state)",
+      "conjugations": {
+        "present": { "yo": "estoy", "tu": "estás", "el": "está", "nosotros": "estamos", "vosotros": "estáis", "ellos": "están" },
+        "preterite": { "yo": "estuve", "tu": "estuviste", "el": "estuvo", "nosotros": "estuvimos", "vosotros": "estuvisteis", "ellos": "estuvieron" },
+        "imperfect": { "yo": "estaba", "tu": "estabas", "el": "estaba", "nosotros": "estábamos", "vosotros": "estabais", "ellos": "estaban" },
+        "future": { "yo": "estaré", "tu": "estarás", "el": "estará", "nosotros": "estaremos", "vosotros": "estaréis", "ellos": "estarán" }
+      }
+    },
+    {
+      "infinitive": "tener",
+      "gloss": "to have",
+      "conjugations": {
+        "present": { "yo": "tengo", "tu": "tienes", "el": "tiene", "nosotros": "tenemos", "vosotros": "tenéis", "ellos": "tienen" },
+        "preterite": { "yo": "tuve", "tu": "tuviste", "el": "tuvo", "nosotros": "tuvimos", "vosotros": "tuvisteis", "ellos": "tuvieron" },
+        "imperfect": { "yo": "tenía", "tu": "tenías", "el": "tenía", "nosotros": "teníamos", "vosotros": "teníais", "ellos": "tenían" },
+        "future": { "yo": "tendré", "tu": "tendrás", "el": "tendrá", "nosotros": "tendremos", "vosotros": "tendréis", "ellos": "tendrán" }
+      }
+    },
+    {
+      "infinitive": "ir",
+      "gloss": "to go",
+      "conjugations": {
+        "present": { "yo": "voy", "tu": "vas", "el": "va", "nosotros": "vamos", "vosotros": "vais", "ellos": "van" },
+        "preterite": { "yo": "fui", "tu": "fuiste", "el": "fue", "nosotros": "fuimos", "vosotros": "fuisteis", "ellos": "fueron" },
+        "imperfect": { "yo": "iba", "tu": "ibas", "el": "iba", "nosotros": "íbamos", "vosotros": "ibais", "ellos": "iban" },
+        "future": { "yo": "iré", "tu": "irás", "el": "irá", "nosotros": "iremos", "vosotros": "iréis", "ellos": "irán" }
+      }
+    },
+    {
+      "infinitive": "hacer",
+      "gloss": "to do / make",
+      "conjugations": {
+        "present": { "yo": "hago", "tu": "haces", "el": "hace", "nosotros": "hacemos", "vosotros": "hacéis", "ellos": "hacen" },
+        "preterite": { "yo": "hice", "tu": "hiciste", "el": "hizo", "nosotros": "hicimos", "vosotros": "hicisteis", "ellos": "hicieron" },
+        "imperfect": { "yo": "hacía", "tu": "hacías", "el": "hacía", "nosotros": "hacíamos", "vosotros": "hacíais", "ellos": "hacían" },
+        "future": { "yo": "haré", "tu": "harás", "el": "hará", "nosotros": "haremos", "vosotros": "haréis", "ellos": "harán" }
+      }
+    }
+  ]
+}

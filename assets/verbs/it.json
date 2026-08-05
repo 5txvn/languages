@@ -1,0 +1,79 @@
+{
+  "lang": "it",
+  "pronouns": [
+    { "id": "io", "label": "io" },
+    { "id": "tu", "label": "tu" },
+    { "id": "lui", "label": "lui/lei" },
+    { "id": "noi", "label": "noi" },
+    { "id": "voi", "label": "voi" },
+    { "id": "loro", "label": "loro" }
+  ],
+  "tenseLabels": {
+    "present": "Presente",
+    "passatoProssimo": "Passato prossimo",
+    "imperfect": "Imperfetto",
+    "future": "Futuro semplice"
+  },
+  "verbs": [
+    {
+      "infinitive": "parlare",
+      "gloss": "to speak",
+      "conjugations": {
+        "present": { "io": "parlo", "tu": "parli", "lui": "parla", "noi": "parliamo", "voi": "parlate", "loro": "parlano" },
+        "passatoProssimo": { "io": "ho parlato", "tu": "hai parlato", "lui": "ha parlato", "noi": "abbiamo parlato", "voi": "avete parlato", "loro": "hanno parlato" },
+        "imperfect": { "io": "parlavo", "tu": "parlavi", "lui": "parlava", "noi": "parlavamo", "voi": "parlavate", "loro": "parlavano" },
+        "future": { "io": "parlerò", "tu": "parlerai", "lui": "parlerà", "noi": "parleremo", "voi": "parlerete", "loro": "parleranno" }
+      }
+    },
+    {
+      "infinitive": "essere",
+      "gloss": "to be",
+      "conjugations": {
+        "present": { "io": "sono", "tu": "sei", "lui": "è", "noi": "siamo", "voi": "siete", "loro": "sono" },
+        "passatoProssimo": { "io": "sono stato", "tu": "sei stato", "lui": "è stato", "noi": "siamo stati", "voi": "siete stati", "loro": "sono stati" },
+        "imperfect": { "io": "ero", "tu": "eri", "lui": "era", "noi": "eravamo", "voi": "eravate", "loro": "erano" },
+        "future": { "io": "sarò", "tu": "sarai", "lui": "sarà", "noi": "saremo", "voi": "sarete", "loro": "saranno" }
+      }
+    },
+    {
+      "infinitive": "avere",
+      "gloss": "to have",
+      "conjugations": {
+        "present": { "io": "ho", "tu": "hai", "lui": "ha", "noi": "abbiamo", "voi": "avete", "loro": "hanno" },
+        "passatoProssimo": { "io": "ho avuto", "tu": "hai avuto", "lui": "ha avuto", "noi": "abbiamo avuto", "voi": "avete avuto", "loro": "hanno avuto" },
+        "imperfect": { "io": "avevo", "tu": "avevi", "lui": "aveva", "noi": "avevamo", "voi": "avevate", "loro": "avevano" },
+        "future": { "io": "avrò", "tu": "avrai", "lui": "avrà", "noi": "avremo", "voi": "avrete", "loro": "avranno" }
+      }
+    },
+    {
+      "infinitive": "andare",
+      "gloss": "to go",
+      "conjugations": {
+        "present": { "io": "vado", "tu": "vai", "lui": "va", "noi": "andiamo", "voi": "andate", "loro": "vanno" },
+        "passatoProssimo": { "io": "sono andato", "tu": "sei andato", "lui": "è andato", "noi": "siamo andati", "voi": "siete andati", "loro": "sono andati" },
+        "imperfect": { "io": "andavo", "tu": "andavi", "lui": "andava", "noi": "andavamo", "voi": "andavate", "loro": "andavano" },
+        "future": { "io": "andrò", "tu": "andrai", "lui": "andrà", "noi": "andremo", "voi": "andrete", "loro": "andranno" }
+      }
+    },
+    {
+      "infinitive": "fare",
+      "gloss": "to do / make",
+      "conjugations": {
+        "present": { "io": "faccio", "tu": "fai", "lui": "fa", "noi": "facciamo", "voi": "fate", "loro": "fanno" },
+        "passatoProssimo": { "io": "ho fatto", "tu": "hai fatto", "lui": "ha fatto", "noi": "abbiamo fatto", "voi": "avete fatto", "loro": "hanno fatto" },
+        "imperfect": { "io": "facevo", "tu": "facevi", "lui": "faceva", "noi": "facevamo", "voi": "facevate", "loro": "facevano" },
+        "future": { "io": "farò", "tu": "farai", "lui": "farà", "noi": "faremo", "voi": "farete", "loro": "faranno" }
+      }
+    },
+    {
+      "infinitive": "venire",
+      "gloss": "to come",
+      "conjugations": {
+        "present": { "io": "vengo", "tu": "vieni", "lui": "viene", "noi": "veniamo", "voi": "venite", "loro": "vengono" },
+        "passatoProssimo": { "io": "sono venuto", "tu": "sei venuto", "lui": "è venuto", "noi": "siamo venuti", "voi": "siete venuti", "loro": "sono venuti" },
+        "imperfect": { "io": "venivo", "tu": "venivi", "lui": "veniva", "noi": "venivamo", "voi": "venivate", "loro": "venivano" },
+        "future": { "io": "verrò", "tu": "verrai", "lui": "verrà", "noi": "verremo", "voi": "verrete", "loro": "verranno" }
+      }
+    }
+  ]
+}

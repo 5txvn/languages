@@ -11,8 +11,8 @@ import {
   DEFAULT_SENTENCE_FILTERS,
   wordsMatch,
   prefixMatches,
+  tokenizeWithPositions,
   loadZipfDict,
-  loadCorpusStats,
   loadLemmaMap,
   streamAllSentences,
   buildPuzzle,
@@ -26,6 +26,8 @@ import {
   fetchSentenceAtIndex,
   sentenceText,
   blankWordDedupKey,
+  senseDedupKey,
+  normalizeForMatch,
   puzzleMatchesReported,
   puzzleIsSkipped,
   countMatchingSentences,
@@ -35,6 +37,9 @@ import {
   corpusStatsId,
   corpusFingerprint,
   statsMatchFingerprint,
+  sentencesContainingWord,
+  findSentencesContainingWord,
+  countSentencesContainingWords,
 } from "./game.js";
 import { loadArticles, buildArticlePuzzle, articleDifficultyLabel } from "./articles.js";
 import { feedbackCorrect, feedbackWrong, speakWord, speakSentence, stopSpeech, configureTts, TTS_VARIANTS } from "./tts.js";
@@ -53,7 +58,7 @@ import { lookupWord, wiktionaryTitleFromHref, wiktionaryUrl } from "./lookup.js"
 import { groqChat, buildWordContext } from "./groq.js";
 import { pointsForAnswer } from "./score.js";
 import { exportSet, parseImport } from "./flashcards-io.js";
-import { seedBuiltinFlashcardSets } from "./flashcard-presets.js";
+import { seedBuiltinFlashcardSets, iconForPreset, PRESET_ROUND_GOAL } from "./flashcard-presets.js";
 import { renderScoreChart, attachChartHover } from "./stats-chart.js";
 import { renderMarkdown, fetchMarkdown } from "./markdown.js";
 import {
@@ -94,12 +99,35 @@ import {
   countDueReviews,
   getActiveReviews,
   countActiveReviews,
+  getLearnedReviews,
+  requeueLearnedReview,
   deleteSentenceReviewForPuzzle,
+  getSentenceReviews,
   getWordExposureMap,
   incrementWordExposure,
+  getSeenSenseKeySet,
+  markSenseSeen,
   getCachedCorpusStats,
   saveCachedCorpusStats,
 } from "./db.js";
+import {
+  POS_OPTIONS,
+  DEFAULT_POS_FILTER,
+  loadTaggedCorpus,
+  annotateSentencesWithTags,
+  taggedCorpusAvailable,
+  loadSensesInventory,
+  resolveLemma,
+  sentencesContainingLemma,
+  findSentencesContainingLemma,
+} from "./tagged.js";
+import {
+  conjugationsAvailable,
+  loadVerbPack,
+  listTenses,
+  pickConjugationItem,
+  conjugationCorrect,
+} from "./conjugator.js";
 import { LEARNED_THRESHOLD, puzzleFromReview } from "./srs.js";
 
 const $ = window.jQuery;
@@ -160,6 +188,7 @@ const state = {
   flashcardSetModalMode: "create",
   editingSetId: null,
   pendingWordAfterSetCreate: null,
+  pendingFlashcardWord: null,
   translationCache: {},
   catalog: [],
   learning: [],
@@ -181,6 +210,30 @@ const state = {
   savedLang: null,
   savedFromHub: false,
   sentenceFilters: { ...DEFAULT_SENTENCE_FILTERS },
+  posFilter: { ...DEFAULT_POS_FILTER, allowed: [...DEFAULT_POS_FILTER.allowed] },
+  taggedAvailable: false,
+  taggedData: null,
+  lemmaZipf: null,
+  senseZipf: null,
+  sensesInventory: null,
+  seenSenseKeys: new Set(),
+  lookupLemma: "",
+  lookupExampleOffset: 0,
+  lookupTaggedCache: Object.create(null),
+  lookupSenseZipf: null,
+  lookupLemmaZipf: null,
+  flashcardListTab: "yours",
+  wordScreenTab: "lookup",
+  masteryItems: [],
+  masteryShown: 0,
+  senseMeta: null,
+  reviewBankTab: "active",
+  verbPack: null,
+  conjItem: null,
+  conjScore: 0,
+  conjUsedKeys: new Set(),
+  conjTenseFilter: [],
+  conjAwaiting: false,
   articles: [],
   activeArticle: null,
   articleCursor: 0,
@@ -206,10 +259,21 @@ function showToast(msg) {
   showToast._t = setTimeout(() => $t.addClass("hidden"), 2800);
 }
 
-function setLoadProgress(pct, msg) {
-  const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
-  $("#load-bar").css("width", `${clamped}%`);
-  $("#load-status").text(msg);
+function setLoadProgress(pct, _msg) {
+  const clamped = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  const $spinner = $("#load-spinner");
+  const $ring = $("#load-progress-ring");
+  const $pct = $("#load-pct");
+  if (!$spinner.length) return;
+  if (clamped <= 0) {
+    $spinner.addClass("is-indeterminate");
+    $ring.css("stroke-dashoffset", "");
+    $pct.text("");
+    return;
+  }
+  $spinner.removeClass("is-indeterminate");
+  $ring.css("stroke-dashoffset", String(100 - clamped));
+  $pct.text(`${clamped}`);
 }
 
 async function migrateLegacySettings() {
@@ -296,11 +360,22 @@ function renderTtsLocaleSettings() {
   enhanceAllSelects($wrap[0]);
 }
 
-async function applyPersistedSentenceFilters(langCode) {
+function filterStorageKey(langCode = state.lang, corpus = state.corpus) {
+  return `${langCode}:${corpus || "wiki"}`;
+}
+
+async function applyPersistedSentenceFilters(langCode, corpus = state.corpus) {
   const s = await getSettings();
-  const saved = s?.filtersByLang?.[langCode];
+  const key = filterStorageKey(langCode, corpus);
+  const byCorpus = s?.filtersByLangCorpus ?? {};
+  // Prefer per-corpus; fall back to legacy per-lang once.
+  const saved = byCorpus[key] ?? s?.filtersByLang?.[langCode];
   if (!saved) {
     applyCorpusStatsToFiltersUI({ resetToBounds: true });
+    $("#filter-sentences-enable").prop("checked", false);
+    $("#filter-advanced-enable").prop("checked", false);
+    state.posFilter = { enabled: false, allowed: POS_OPTIONS.map((p) => p.id) };
+    renderPosFilterGrid();
     syncFilterUI({ persist: false });
     return;
   }
@@ -311,6 +386,16 @@ async function applyPersistedSentenceFilters(langCode) {
   if (saved.minAvgZipf != null) $("#filter-avgzipf-lo").val(saved.minAvgZipf);
   if (saved.maxAvgZipf != null) $("#filter-avgzipf-hi").val(saved.maxAvgZipf);
   applyCorpusStatsToFiltersUI({ resetToBounds: false });
+
+  const pos = saved.posFilter;
+  $("#filter-advanced-enable").prop("checked", Boolean(pos?.enabled));
+  state.posFilter = {
+    enabled: Boolean(pos?.enabled),
+    allowed: Array.isArray(pos?.allowed) && pos.allowed.length
+      ? [...pos.allowed]
+      : POS_OPTIONS.map((p) => p.id),
+  };
+  renderPosFilterGrid();
   syncFilterUI({ persist: false });
 }
 
@@ -326,9 +411,13 @@ async function persistSentenceFilters() {
   if (!state.dataLoaded || !state.lang) return;
   const existing = (await getSettings()) ?? {};
   const filters = readSentenceFilters();
+  const key = filterStorageKey();
   await saveSettings({
     ...existing,
-    filtersByLang: { ...(existing.filtersByLang ?? {}), [state.lang]: filters },
+    filtersByLangCorpus: {
+      ...(existing.filtersByLangCorpus ?? {}),
+      [key]: filters,
+    },
   });
 }
 
@@ -338,12 +427,50 @@ function blankWordOpts() {
     wordExposure: state.wordExposure,
     lang: state.lang,
     lemmaMap: state.lemmaMap,
+    posFilter: state.posFilter,
+    lemmaZipf: state.lemmaZipf,
+    senseZipf: state.senseZipf,
+    seenSenseKeys: state.seenSenseKeys,
+    requireTags: Boolean(state.taggedAvailable && state.taggedData),
   };
   // Freeplay only — flashcards, revisit, and casual browse may use review-bank words.
   if (state.practiceMode === "zipf" || state.practiceMode === "article") {
     opts.blockedWordKeys = state.blockedWordKeys;
   }
   return opts;
+}
+
+function readPosFilterFromUI() {
+  const enabled = $("#filter-advanced-enable").is(":checked");
+  const allowed = [];
+  $("#pos-filter-grid input[type=checkbox]").each(function () {
+    if (this.checked) allowed.push(this.value);
+  });
+  return {
+    enabled: Boolean(enabled && state.taggedAvailable),
+    allowed: allowed.length ? allowed : POS_OPTIONS.map((p) => p.id),
+  };
+}
+
+function renderPosFilterGrid() {
+  const $grid = $("#pos-filter-grid").empty();
+  const allowed = new Set(state.posFilter?.allowed ?? DEFAULT_POS_FILTER.allowed);
+  for (const opt of POS_OPTIONS) {
+    const id = `pos-opt-${opt.id}`;
+    const $label = $(`<label for="${id}"></label>`);
+    const $cb = $(`<input type="checkbox" id="${id}" value="${opt.id}" />`);
+    $cb.prop("checked", allowed.has(opt.id));
+    $cb.on("change", () => {
+      state.posFilter = readPosFilterFromUI();
+      schedulePersistSentenceFilters();
+      updateFilterMatchCount();
+    });
+    $label.append($cb, document.createTextNode(opt.label));
+    $grid.append($label);
+  }
+  $("#menu-advanced-filters").toggleClass("hidden", false);
+  $("#pos-filter-unavailable").toggleClass("hidden", state.taggedAvailable);
+  $("#pos-filter-grid").toggleClass("hidden", !state.taggedAvailable);
 }
 
 async function refreshBlockedWordKeys() {
@@ -354,6 +481,10 @@ async function refreshBlockedWordKeys() {
   const reviews = await getActiveReviews(state.lang, { skippedSet: state.skippedSet });
   const keys = new Set();
   for (const r of reviews) {
+    if (r.lemma) {
+      const sk = senseDedupKey(r.lemma, r.sense);
+      if (sk) state.seenSenseKeys.add(sk);
+    }
     if (!r.answer) continue;
     keys.add(blankWordDedupKey(r.answer, state.lang, state.lemmaMap));
   }
@@ -366,6 +497,20 @@ async function trackPuzzleShown(puzzle) {
   state.sessionBlankKeys.add(key);
   const count = await incrementWordExposure(state.lang, key);
   state.wordExposure[key] = count;
+  // Freeplay: never quiz this lemma+sense again.
+  if (
+    (state.practiceMode === "zipf" || state.practiceMode === "article") &&
+    puzzle.lemma
+  ) {
+    const senseKey = senseDedupKey(puzzle.lemma, puzzle.sense);
+    if (senseKey) {
+      state.seenSenseKeys.add(senseKey);
+      await markSenseSeen(state.lang, senseKey, {
+        lemma: puzzle.lemma,
+        sense: puzzle.sense || "",
+      });
+    }
+  }
 }
 
 function purgeReportedPuzzle(puzzle) {
@@ -426,7 +571,14 @@ function syncDualRange(loSel, hiSel, fillSel, labelSel, formatLabel, { allowEqua
 
 function readSentenceFilters() {
   const enabled = $("#filter-sentences-enable").is(":checked");
-  if (!enabled) return { ...DEFAULT_SENTENCE_FILTERS, enabled: false };
+  state.posFilter = readPosFilterFromUI();
+  if (!enabled) {
+    return {
+      ...DEFAULT_SENTENCE_FILTERS,
+      enabled: false,
+      posFilter: { ...state.posFilter },
+    };
+  }
   const words = syncDualRange(
     "#filter-words-lo",
     "#filter-words-hi",
@@ -447,6 +599,7 @@ function readSentenceFilters() {
     maxWords: words.hi,
     minAvgZipf: zipf.lo,
     maxAvgZipf: zipf.hi,
+    posFilter: { ...state.posFilter },
   };
 }
 
@@ -536,14 +689,42 @@ function applyCorpusStatsToFiltersUI({ resetToBounds = false } = {}) {
   updateFilterMatchCount();
 }
 
+let filterMatchCountTimer = null;
 function updateFilterMatchCount() {
   const filters = readSentenceFilters();
+  const $el = $("#filter-match-count");
+
+  if (state.practiceMode === "flashcard" && state.activeFlashcardSet?.words?.length) {
+    const run = () => {
+      const words = state.activeFlashcardSet.words.map((w) => w.word);
+      const { matched, withWords } = countSentencesContainingWords(state.sentences, words, {
+        filters: readSentenceFilters(),
+        lang: state.lang,
+        zipfDict: state.zipfDict,
+        lemmaMap: state.lemmaMap,
+        corpusStats: state.corpusStats,
+        skippedSet: state.skippedSet,
+      });
+      const enabled = $("#filter-sentences-enable").is(":checked");
+      const label = enabled
+        ? `${matched.toLocaleString()} of ${withWords.toLocaleString()} sentences with set words match`
+        : `${withWords.toLocaleString()} sentences contain words from this set`;
+      $el.text(label);
+      $el.css("color", enabled && matched === 0 ? "var(--danger, #dc2626)" : "var(--primary)");
+      const canStart = withWords > 0 && (!enabled || matched > 0);
+      $("#btn-flashcard-start").prop("disabled", !canStart).toggleClass("opacity-50", !canStart);
+    };
+    $el.text("Counting…");
+    clearTimeout(filterMatchCountTimer);
+    filterMatchCountTimer = setTimeout(run, 120);
+    return;
+  }
+
   const total = state.corpusStats?.totalSentences ?? state.sentences?.length ?? 0;
   const matched = countMatchingSentences(state.corpusStats, filters);
   const label = filters.enabled
     ? `${matched.toLocaleString()} of ${total.toLocaleString()} sentences match`
     : `${total.toLocaleString()} sentences available`;
-  const $el = $("#filter-match-count");
   $el.text(label);
   $el.css("color", filters.enabled && matched === 0 ? "var(--danger, #dc2626)" : "var(--primary)");
   const canStart = !filters.enabled || matched > 0;
@@ -584,7 +765,9 @@ function dropPuzzlePoolForSkipped(lineIndex, sentence) {
 
 function syncFilterUI({ persist = true } = {}) {
   const enabled = $("#filter-sentences-enable").is(":checked");
-  $("#filter-sentences-fields").toggleClass("disabled", !enabled);
+  $("#filter-sentences-fields").toggleClass("hidden", !enabled);
+  const advanced = $("#filter-advanced-enable").is(":checked");
+  $("#filter-advanced-fields").toggleClass("hidden", !advanced);
   state.sentenceFilters = readSentenceFilters();
   updateFilterMatchCount();
   if (persist) schedulePersistSentenceFilters();
@@ -606,9 +789,10 @@ function syncSliders() {
   $hi.val(hi);
   state.zipfLo = lo;
   state.zipfHi = hi;
-  $("#slider-label").text(
-    lo === hi ? lo.toFixed(1) : `${lo.toFixed(1)} – ${hi.toFixed(1)}`
-  );
+  const $label = $("#slider-label");
+  if ($label.length) {
+    $label.text(lo === hi ? lo.toFixed(1) : `${lo.toFixed(1)} – ${hi.toFixed(1)}`);
+  }
   const fill = $("#range-fill")[0];
   if (fill) updateRangeFill($lo[0], $hi[0], fill);
 }
@@ -751,7 +935,8 @@ async function renderLangHub() {
   $("#hub-score").text(st.totalScore ?? 0);
   $("#hub-streak").text(st.streak ?? 0);
   $("#hub-coming-soon").toggleClass("hidden", available);
-  $(".hub-tile").not("#btn-mode-foundations, #btn-mode-saved, #btn-mode-revisit").toggleClass("disabled", !available);
+  $(".hub-tile").not("#btn-mode-foundations, #btn-mode-saved, #btn-mode-revisit, #btn-mode-word-lookup, #btn-mode-articles, #btn-mode-conjugator").toggleClass("disabled", !available);
+  $("#btn-mode-conjugator").toggleClass("hidden", !conjugationsAvailable(state.lang));
   $("#btn-mode-revisit").toggleClass("disabled", activeCount === 0);
   $("#revisit-due-desc").text(
     activeCount
@@ -799,7 +984,9 @@ async function ensureCorpusStatsForLoaded(lang, corpus, byteLength) {
     lang.code,
     state.zipfDict,
     state.lemmaMap,
-    corpus
+    corpus,
+    state.lemmaZipf,
+    state.senseZipf
   );
   stats.fingerprint = fingerprint;
   stats.id = cacheId;
@@ -817,15 +1004,16 @@ async function ensureLanguageData(lang, { corpus = state.corpus || "wiki", force
   showScreen("screen-loading");
   setLoadProgress(5, `Loading ${lang.label}…`);
   const sourceFile = sentenceFilename(lang.code, corpus);
-  const [zipfDict, lemmaMap, fileStats, sentResult, skipped, sets, wordExposure] = await Promise.all([
+  const [zipfDict, lemmaMap, sentResult, skipped, sets, wordExposure, taggedAvail, seenSenses] = await Promise.all([
     loadZipfDict(lang.code),
     loadLemmaMap(lang.code),
-    loadCorpusStats(lang.code, corpus),
     resolveDataUrl(sourceFile, { fallbacks: legacyFallbacks(lang.code, corpus) })
       .then((url) => streamAllSentences(url, setLoadProgress)),
     getSkippedSet(lang.code),
     getFlashcardSets(lang.code),
     getWordExposureMap(lang.code),
+    taggedCorpusAvailable(lang.code, corpus),
+    getSeenSenseKeySet(lang.code),
   ]);
   const { lines, lang: detected, byteLength } = sentResult;
   if (!lines.length) throw new Error(`No sentences in ${sourceFile}. Populate the ${corpus} file to practice.`);
@@ -836,17 +1024,48 @@ async function ensureLanguageData(lang, { corpus = state.corpus || "wiki", force
   state.sourceFile = sourceFile;
   state.zipfDict = zipfDict;
   state.lemmaMap = lemmaMap;
-  state.corpusStats = fileStats;
+  state.corpusStats = null;
   state.sentences = lines;
   state.vocabSet = buildVocabSet(lines);
   state.skippedSet = skipped;
   state.wordExposure = wordExposure;
   state.flashcardSets = sets;
+  state.seenSenseKeys = seenSenses;
+  state.taggedAvailable = taggedAvail;
+  state.taggedData = null;
+  state.lemmaZipf = null;
+  state.senseZipf = null;
+  state.senseMeta = null;
   state.dataLoaded = true;
+
+  if (taggedAvail) {
+    setLoadProgress(88, "Loading tagged corpus…");
+    try {
+      const tagged = await loadTaggedCorpus(lang.code, corpus, { onProgress: setLoadProgress });
+      if (tagged) {
+        state.taggedData = tagged;
+        state.lemmaZipf = tagged.lemmaZipf;
+        state.senseZipf = tagged.senseZipf;
+        state.senseMeta = tagged.senseMeta || null;
+        annotateSentencesWithTags(state.sentences, tagged);
+      }
+    } catch (err) {
+      console.warn("Tagged corpus load failed", err);
+    }
+  }
+
+  try {
+    state.sensesInventory = await loadSensesInventory(lang.code);
+  } catch {
+    state.sensesInventory = null;
+  }
+
   await ensureCorpusStatsForLoaded(lang, corpus, byteLength);
   await refreshBlockedWordKeys();
   applyCorpusStatsToFiltersUI({ resetToBounds: true });
-  await applyPersistedSentenceFilters(lang.code);
+  await applyPersistedSentenceFilters(lang.code, corpus);
+  renderPosFilterGrid();
+  syncFilterUI({ persist: false });
   setLoadProgress(100, `Ready — ${lines.length.toLocaleString()} sentences`);
 }
 
@@ -960,9 +1179,15 @@ async function saveFlashcardSetModal() {
       if (state.pendingWordAfterSetCreate) {
         const word = state.pendingWordAfterSetCreate;
         state.pendingWordAfterSetCreate = null;
+        state.pendingFlashcardWord = null;
         const newSet = [...state.flashcardSets].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
         if (newSet) {
-          validateFlashcardWord(word);
+          try {
+            validateFlashcardWord(word);
+          } catch {
+            await ensureFullVocab();
+            validateFlashcardWord(word);
+          }
           await addWordToSet(newSet.id, word);
           showToast("Set created and word added.");
         } else {
@@ -1122,17 +1347,34 @@ function flashcardSetMatchesSearch(set, query) {
 
 function appendFlashcardSetRow($parent, set, { builtin = false } = {}) {
   const safeName = $("<span>").text(set.name).html();
+  const rounds = Math.min(PRESET_ROUND_GOAL, set.successfulRounds ?? 0);
+  const pct = Math.round((rounds / PRESET_ROUND_GOAL) * 100);
+  if (builtin) {
+    const icon = iconForPreset(set);
+    const $card = $(`
+      <button type="button" class="preset-map-card card" data-id="${set.id}">
+        <span class="preset-map-icon" aria-hidden="true">${icon}</span>
+        <span class="preset-map-name"></span>
+        <span class="preset-map-meta">${set.words.length} words</span>
+        <span class="preset-map-rounds">${rounds}/${PRESET_ROUND_GOAL} rounds</span>
+        <span class="preset-map-bar"><span class="preset-map-fill" style="width:${pct}%"></span></span>
+      </button>
+    `);
+    $card.find(".preset-map-name").text(set.name);
+    $parent.append($card);
+    return;
+  }
   const $row = $(`
-    <div class="card flashcard-set-row p-4${builtin ? " builtin" : ""}">
+    <div class="card flashcard-set-row p-4">
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0 flex-1">
           <p class="font-semibold truncate">${safeName}</p>
-          <p class="mt-1 text-xs" style="color:var(--muted)">${set.words.length} word${set.words.length === 1 ? "" : "s"}${builtin ? " · Wikora preset" : " · Your set"}</p>
+          <p class="mt-1 text-xs" style="color:var(--muted)">${set.words.length} word${set.words.length === 1 ? "" : "s"} · Your set</p>
         </div>
         <div class="flex shrink-0 flex-wrap justify-end gap-2">
           <button type="button" class="btn-ghost px-3 py-1.5 text-xs btn-edit-set" data-id="${set.id}">Edit</button>
           <button type="button" class="btn-ghost px-3 py-1.5 text-xs btn-practice-set" data-id="${set.id}">Practice</button>
-          ${builtin ? "" : '<button type="button" class="btn-ghost px-2 py-1 text-xs btn-del-set" data-id="' + set.id + '">Delete</button>'}
+          <button type="button" class="btn-ghost px-2 py-1 text-xs btn-del-set" data-id="${set.id}">Delete</button>
         </div>
       </div>
     </div>
@@ -1143,30 +1385,39 @@ function appendFlashcardSetRow($parent, set, { builtin = false } = {}) {
 function renderFlashcardList() {
   renderFlashcardHeader();
   const query = ($("#flashcard-set-search").val() || "").trim().toLowerCase();
+  const tab = state.flashcardListTab || "yours";
+  $(".fc-tab").removeClass("is-active");
+  $(`.fc-tab[data-fc-tab="${tab}"]`).addClass("is-active");
+  $("#flashcard-tab-yours").toggleClass("hidden", tab !== "yours");
+  $("#flashcard-tab-presets").toggleClass("hidden", tab !== "presets");
+
   const userSets = state.flashcardSets.filter((s) => !s.builtinId && flashcardSetMatchesSearch(s, query));
   const builtinSets = state.flashcardSets.filter((s) => s.builtinId && flashcardSetMatchesSearch(s, query));
 
   const $user = $("#flashcard-user-list").empty();
-  $("#flashcard-user-label").toggleClass("hidden", userSets.length === 0);
   $("#flashcard-user-empty").toggleClass("hidden", userSets.length > 0);
   for (const set of userSets) appendFlashcardSetRow($user, set);
 
   const $builtin = $("#flashcard-builtin-list").empty();
-  $("#flashcard-builtin-summary").text(
-    builtinSets.length
-      ? `Wikora preset sets (${builtinSets.length}${query ? ` matching` : ""})`
-      : "Wikora preset sets"
-  );
   if (!builtinSets.length) {
-    $builtin.append(`<p class="text-sm text-center py-2" style="color:var(--muted)">${query ? "No preset sets match your search." : "No preset sets loaded yet."}</p>`);
+    $("#flashcard-builtin-empty")
+      .removeClass("hidden")
+      .text(query ? "No preset sets match your search." : "No preset sets loaded yet.");
   } else {
-    for (const set of builtinSets) appendFlashcardSetRow($builtin, set, { builtin: true });
+    $("#flashcard-builtin-empty").addClass("hidden");
+    const $grid = $('<div class="preset-map-grid"></div>');
+    for (const set of builtinSets) appendFlashcardSetRow($grid, set, { builtin: true });
+    $builtin.append($grid);
   }
 
   $(".btn-edit-set").off("click").on("click", function () {
     openFlashcardEdit(this.dataset.id).catch((err) => showToast(err.message));
   });
   $(".btn-practice-set").off("click").on("click", function () {
+    const set = state.flashcardSets.find((s) => s.id === this.dataset.id);
+    openFlashcardPracticeMenu(set);
+  });
+  $(".preset-map-card").off("click").on("click", function () {
     const set = state.flashcardSets.find((s) => s.id === this.dataset.id);
     openFlashcardPracticeMenu(set);
   });
@@ -1184,43 +1435,42 @@ function renderMenuHeader() {
 
 function renderPresets() {
   const $grid = $("#preset-grid").empty();
-  for (const preset of DIFFICULTY_PRESETS) {
-    if (preset.name === "Expert") continue;
-    const $btn = $(`
-      <button type="button" class="preset-tile card px-3 py-2 text-left" title="${preset.desc}">
-        <span class="block text-sm font-semibold">${preset.name}</span>
-        <span class="preset-range mt-0.5 block">${preset.lo}–${preset.hi}</span>
-        <span class="preset-desc text-xs" style="color:var(--muted)">${preset.desc}</span>
-      </button>
-    `);
-    $btn.on("click", () => {
-      state.sentenceFilters = readSentenceFilters();
-      if (state.sentenceFilters.enabled && countMatchingSentences(state.corpusStats, state.sentenceFilters) === 0) {
-        showToast("No sentences match these filters.");
-        return;
-      }
-      startGame(preset.lo, preset.hi, preset.name);
-    });
-    $grid.append($btn);
-  }
-
   const lo = state.zipfLo ?? ZIPF_MIN;
   const hi = state.zipfHi ?? 4.0;
   const $custom = $(`
     <div class="preset-tile preset-tile-custom card px-3 py-3 text-left">
-      <button type="button" class="btn-custom-start w-full text-left">
+      <div class="flex items-center justify-between gap-2">
         <span class="block text-sm font-semibold">Custom</span>
-        <span id="slider-label" class="preset-range mt-0.5 block">${(+lo).toFixed(1)} – ${(+hi).toFixed(1)}</span>
-      </button>
+        <button type="button" class="btn-primary btn-custom-start px-3 py-1.5 text-xs">Start</button>
+      </div>
+      <div class="preset-chip-row mt-3"></div>
       <div class="range-wrap mt-3">
         <div class="range-track"></div>
         <div id="range-fill" class="range-fill"></div>
         <input id="zipf-lo" type="range" min="${ZIPF_MIN}" max="${ZIPF_MAX}" step="0.1" value="${lo}" />
         <input id="zipf-hi" type="range" min="${ZIPF_MIN}" max="${ZIPF_MAX}" step="0.1" value="${hi}" />
       </div>
-      <div class="mt-1 flex justify-between text-xs" style="color:var(--muted)"><span>${ZIPF_MIN}</span><span>${ZIPF_MAX}</span></div>
+      <div class="mt-1 flex justify-between text-xs" style="color:var(--muted)">
+        <span>${ZIPF_MIN}</span>
+        <span id="slider-label" class="font-mono">${(+lo).toFixed(1)} – ${(+hi).toFixed(1)}</span>
+        <span>${ZIPF_MAX}</span>
+      </div>
     </div>
   `);
+  const $chips = $custom.find(".preset-chip-row");
+  for (const preset of DIFFICULTY_PRESETS) {
+    if (preset.name === "Expert") continue;
+    const $chip = $(`<button type="button" class="preset-chip" title="${preset.desc}"></button>`);
+    $chip.text(preset.name);
+    $chip.on("click", () => {
+      $("#zipf-lo").val(preset.lo);
+      $("#zipf-hi").val(preset.hi);
+      syncSliders();
+      $chips.find(".preset-chip").removeClass("is-active");
+      $chip.addClass("is-active");
+    });
+    $chips.append($chip);
+  }
   $custom.find(".btn-custom-start").on("click", () => {
     syncSliders();
     state.sentenceFilters = readSentenceFilters();
@@ -1229,9 +1479,15 @@ function renderPresets() {
       return;
     }
     if (state.practiceMode !== "article") state.practiceMode = "zipf";
-    startGame(state.zipfLo, state.zipfHi, "Custom");
+    const match = DIFFICULTY_PRESETS.find(
+      (p) => Math.abs(p.lo - state.zipfLo) < 0.05 && Math.abs(p.hi - state.zipfHi) < 0.05
+    );
+    startGame(state.zipfLo, state.zipfHi, match?.name || "Custom");
   });
-  $custom.find("#zipf-lo, #zipf-hi").on("input", syncSliders);
+  $custom.find("#zipf-lo, #zipf-hi").on("input", () => {
+    syncSliders();
+    $chips.find(".preset-chip").removeClass("is-active");
+  });
   $grid.append($custom);
   syncSliders();
 }
@@ -1481,6 +1737,8 @@ async function onCorrect() {
     typed: state.puzzle.answer,
     correct: true,
     hintCount: state.hintedAt.length,
+    lemma: state.puzzle.lemma || "",
+    sense: state.puzzle.sense || "",
   });
   if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex] && reviewRow) {
     state.revisitQueue[state.revisitIndex] = reviewRow;
@@ -1489,6 +1747,7 @@ async function onCorrect() {
   renderGameChrome();
   refreshSentence();
   if (state.enableTts) {
+    // Speak the completed sentence only; advancing cuts it off via stopSpeech/epoch.
     const sentence = state.puzzle.sentence;
     const lang = state.lang;
     feedbackCorrect(sentence, lang).catch(() => {});
@@ -1521,6 +1780,8 @@ async function onWrong() {
     typed: guess,
     correct: false,
     hintCount: state.hintedAt.length,
+    lemma: state.puzzle.lemma || "",
+    sense: state.puzzle.sense || "",
   });
   if (state.practiceMode === "revisit" && state.revisitQueue[state.revisitIndex]) {
     state.revisitQueue[state.revisitIndex] = reviewRow;
@@ -1663,11 +1924,33 @@ async function advanceQuestion() {
   }
 }
 
-function endPracticeSession() {
+async function endPracticeSession() {
   showToast(`Session complete — ${state.sessionPoints} points.`);
+  if (state.practiceMode === "flashcard" && state.activeFlashcardSet?.id) {
+    try {
+      const set = state.flashcardSets.find((s) => s.id === state.activeFlashcardSet.id)
+        ?? state.activeFlashcardSet;
+      const next = Math.min(PRESET_ROUND_GOAL, (set.successfulRounds ?? 0) + 1);
+      set.successfulRounds = next;
+      set.updatedAt = Date.now();
+      await saveFlashcardSet(set);
+      state.activeFlashcardSet = set;
+      state.flashcardSets = await getFlashcardSets(state.lang);
+      if (set.builtinId) {
+        showToast(`Round ${next}/${PRESET_ROUND_GOAL} on ${set.name}.`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   if (state.practiceMode === "article") {
     renderArticleList();
     showScreen("screen-articles");
+    return;
+  }
+  if (state.practiceMode === "flashcard") {
+    renderFlashcardList();
+    showScreen("screen-flashcards");
     return;
   }
   renderPracticeMenu();
@@ -1716,9 +1999,13 @@ function formatReviewDue(nextReviewAt) {
 }
 
 async function openReviewScreen() {
-  const reviews = await getActiveReviews(state.lang, { skippedSet: state.skippedSet });
+  state.reviewBankTab = state.reviewBankTab || "active";
+  const [active, mastered] = await Promise.all([
+    getActiveReviews(state.lang, { skippedSet: state.skippedSet }),
+    getLearnedReviews(state.lang, { skippedSet: state.skippedSet }),
+  ]);
   const now = Date.now();
-  const due = reviews.filter((r) => (r.nextReviewAt ?? 0) <= now);
+  const due = active.filter((r) => (r.nextReviewAt ?? 0) <= now);
   $("#review-flag").empty().append(flagEl(state.country, "md"));
   $("#btn-review-due")
     .prop("disabled", due.length === 0)
@@ -1726,31 +2013,88 @@ async function openReviewScreen() {
     .find(".review-action-count")
     .text(due.length ? `${due.length} due` : "None due");
   $("#btn-review-browse")
-    .prop("disabled", reviews.length === 0)
-    .toggleClass("opacity-50", reviews.length === 0)
+    .prop("disabled", active.length === 0)
+    .toggleClass("opacity-50", active.length === 0)
     .find(".review-action-count")
-    .text(`${reviews.length} total`);
+    .text(`${active.length} active`);
+  $("#btn-review-mastered-practice")
+    .prop("disabled", mastered.length === 0)
+    .toggleClass("opacity-50", mastered.length === 0)
+    .find(".review-action-count")
+    .text(`${mastered.length} mastered`);
 
+  $(".review-bank-tab").removeClass("active");
+  $(`.review-bank-tab[data-tab="${state.reviewBankTab}"]`).addClass("active");
+  renderReviewBankList(state.reviewBankTab === "mastered" ? mastered : active, state.reviewBankTab);
+  showScreen("screen-review");
+}
+
+function renderReviewBankList(rows, tab) {
   const $list = $("#review-bank-list").empty();
-  $("#review-bank-empty").toggleClass("hidden", reviews.length > 0);
-  for (const row of reviews) {
+  const now = Date.now();
+  $("#review-bank-empty").toggleClass("hidden", rows.length > 0);
+  $("#review-bank-empty").text(
+    tab === "mastered"
+      ? "No mastered sentences yet. Finish review streaks to fill this list."
+      : "No sentences in your review bank yet."
+  );
+  for (const row of rows) {
     const isDue = (row.nextReviewAt ?? 0) <= now;
     const blank = row.answer ? ` (${row.answer})` : "";
+    const sense = row.lemma
+      ? ` · ${row.lemma}${row.sense ? `/${row.sense}` : ""}`
+      : "";
     const $row = $(`
       <div class="saved-row">
         <div class="min-w-0 flex-1">
           <p class="saved-row-text"></p>
           <p class="mt-1 text-xs" style="color:var(--muted)">
-            <span class="font-semibold" style="color:${isDue ? "var(--primary)" : "var(--muted)"}">${formatReviewDue(row.nextReviewAt)}</span>
-            · ${row.correctCount ?? 0}/5 mastered${blank}
+            <span class="font-semibold" style="color:${tab === "mastered" ? "var(--hot)" : isDue ? "var(--primary)" : "var(--muted)"}">${
+              tab === "mastered" ? "Mastered" : formatReviewDue(row.nextReviewAt)
+            }</span>
+            · ${row.correctCount ?? 0}/5${blank}${sense}
           </p>
         </div>
+        ${
+          tab === "mastered"
+            ? `<button type="button" class="btn-ghost shrink-0 px-2 py-1 text-xs btn-requeue-review" data-id="${row.id}">Review again</button>`
+            : ""
+        }
       </div>
     `);
     $row.find(".saved-row-text").text(row.sentence);
     $list.append($row);
   }
-  showScreen("screen-review");
+  $(".btn-requeue-review").off("click").on("click", async function () {
+    try {
+      await requeueLearnedReview(this.dataset.id);
+      showToast("Moved back to active review.");
+      await openReviewScreen();
+      await refreshBlockedWordKeys();
+    } catch (err) {
+      showToast(err.message || "Could not requeue.");
+    }
+  });
+}
+
+async function startMasteredPractice() {
+  const mastered = await getLearnedReviews(state.lang, { skippedSet: state.skippedSet });
+  if (!mastered.length) return showToast("No mastered sentences yet.");
+  state.practiceMode = "browse";
+  state.revisitQueue = mastered;
+  state.revisitIndex = 0;
+  state.sessionPoints = 0;
+  state.questionLimit = 0;
+  state.questionsAnswered = 0;
+  state.wrongQueue = [];
+  state.inReview = false;
+  state.reviewItems = [];
+  state.levelName = "Mastered";
+  resetInput();
+  applyTheme(state.lang);
+  renderGameChrome();
+  await loadRevisitPuzzle();
+  showScreen("screen-game");
 }
 
 async function startRevisitPractice() {
@@ -1935,6 +2279,7 @@ async function startGame(lo, hi, name) {
   state.sessionBlankKeys = new Set();
   state.sentenceFilters = readSentenceFilters();
   if (
+    state.practiceMode !== "flashcard" &&
     state.sentenceFilters.enabled &&
     countMatchingSentences(state.corpusStats, state.sentenceFilters) === 0
   ) {
@@ -2274,17 +2619,441 @@ async function runLookup(word) {
 }
 
 async function openAddFlashcardModal(word) {
+  const w = (word || "").trim();
+  if (!w) return;
   hideWordTooltip();
+  state.pendingFlashcardWord = w;
   state.flashcardSets = await getFlashcardSets(state.lang);
-  $("#flashcard-word-label").text(`"${word}"`);
-  const $sel = $("#flashcard-set-pick").empty();
-  if (!state.flashcardSets.length) {
-    $sel.append(`<option value="">No sets yet</option>`);
-  } else {
-    for (const s of state.flashcardSets) $sel.append(`<option value="${s.id}">${s.name} (${s.words.length})</option>`);
-  }
+  $("#flashcard-word-label").text(w);
+  $("#flashcard-set-search-pick").val("");
+  renderFlashcardSetCombobox("");
   openModal("modal-add-flashcard");
-  enhanceSelectField($("#flashcard-set-pick")[0]);
+  setTimeout(() => $("#flashcard-set-search-pick").trigger("focus"), 50);
+}
+
+function renderFlashcardSetCombobox(query = "", { open = true } = {}) {
+  const q = (query || "").trim().toLowerCase();
+  const sets = (state.flashcardSets || []).filter((s) => !q || s.name.toLowerCase().includes(q));
+  const $menu = $("#flashcard-set-menu").empty();
+  const $combo = $("#flashcard-set-combobox");
+  const selectedId = $("#flashcard-set-pick").val();
+
+  if (!sets.length) {
+    $menu.append(`<p class="px-2 py-2 text-sm" style="color:var(--muted)">${(state.flashcardSets || []).length ? "No sets match." : "No sets yet — create one below."}</p>`);
+    if (!(state.flashcardSets || []).length) $("#flashcard-set-pick").val("");
+    $combo.toggleClass("open", open);
+    return;
+  }
+
+  if (!selectedId || !sets.some((s) => s.id === selectedId)) {
+    $("#flashcard-set-pick").val(sets[0].id);
+  }
+  const activeId = $("#flashcard-set-pick").val();
+
+  for (const s of sets) {
+    const $opt = $(`<button type="button" class="custom-select-option${s.id === activeId ? " is-selected" : ""}"></button>`);
+    $opt.text(`${s.name} (${s.words.length})`);
+    $opt.on("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      $("#flashcard-set-pick").val(s.id);
+      $("#flashcard-set-search-pick").val(s.name);
+      renderFlashcardSetCombobox("", { open: false });
+      $combo.removeClass("open");
+    });
+    $menu.append($opt);
+  }
+  $combo.toggleClass("open", open);
+}
+
+function sentenceCardHtml(text) {
+  return $("<div>", { class: "card px-3 py-2.5 text-sm leading-snug" }).text(text);
+}
+
+async function openWordLookupScreen() {
+  $("#word-lookup-input").val("");
+  $("#word-lookup-results").addClass("hidden");
+  const options = catalogLang(state.lang)?.corpora ?? CORPUS_OPTIONS;
+  const $sel = $("#word-lookup-corpus").empty();
+  const $msel = $("#mastery-corpus").empty();
+  for (const c of options) {
+    $sel.append($("<option>", { value: c.id, text: c.label }));
+    $msel.append($("<option>", { value: c.id, text: c.label }));
+  }
+  $sel.val(state.corpus || "wiki");
+  $msel.val(state.corpus || "wiki");
+  enhanceSelectField($sel[0]);
+  enhanceSelectField($msel[0]);
+
+  const $band = $("#mastery-band").empty();
+  for (const preset of DIFFICULTY_PRESETS) {
+    $band.append(
+      $("<option>", {
+        value: `${preset.lo}:${preset.hi}`,
+        text: `${preset.name} (${preset.lo}–${preset.hi})`,
+      })
+    );
+  }
+  $band.val("6:8");
+  enhanceSelectField($band[0]);
+
+  setWordScreenTab(state.wordScreenTab || "lookup");
+  showScreen("screen-word-lookup");
+  if ((state.wordScreenTab || "lookup") === "lookup") {
+    setTimeout(() => $("#word-lookup-input").trigger("focus"), 50);
+  } else {
+    refreshMasteryPanel().catch(() => {});
+  }
+}
+
+function setWordScreenTab(tab) {
+  state.wordScreenTab = tab === "progress" ? "progress" : "lookup";
+  $(".wl-tab").removeClass("is-active");
+  $(`.wl-tab[data-wl-tab="${state.wordScreenTab}"]`).addClass("is-active");
+  $("#wl-panel-lookup").toggleClass("hidden", state.wordScreenTab !== "lookup");
+  $("#wl-panel-progress").toggleClass("hidden", state.wordScreenTab !== "progress");
+}
+
+function setFlashcardListTab(tab) {
+  state.flashcardListTab = tab === "presets" ? "presets" : "yours";
+  renderFlashcardList();
+}
+
+async function refreshMasteryPanel({ append = false } = {}) {
+  const corpus = $("#mastery-corpus").val() || state.corpus || "wiki";
+  const band = ($("#mastery-band").val() || "6:8").split(":");
+  const lo = Number(band[0]) || 6;
+  const hi = Number(band[1]) || 8;
+  const $status = $("#mastery-status").text("Loading tagged Zipf…");
+  const $list = $("#mastery-list");
+  const $empty = $("#mastery-empty").addClass("hidden");
+  const $more = $("#btn-mastery-more").addClass("hidden");
+
+  if (!append) {
+    $list.empty();
+    state.masteryShown = 0;
+    state.masteryItems = [];
+  }
+
+  try {
+    if (!state.sensesInventory && state.lang) {
+      state.sensesInventory = await loadSensesInventory(state.lang);
+    }
+    const tagged = await ensureLookupTagged(corpus);
+    if (!tagged?.senseZipf) {
+      $status.text("No tagged corpus for this selection — Zipf progress needs tags.");
+      $empty.removeClass("hidden").text("Load a tagged corpus (e.g. Movies) to see sense progress.");
+      return;
+    }
+
+    const reviews = await getSentenceReviews(state.lang);
+    const progressBySense = Object.create(null);
+    for (const r of reviews) {
+      if (!r.lemma) continue;
+      const sk = senseDedupKey(r.lemma, r.sense);
+      if (!sk) continue;
+      const prev = progressBySense[sk];
+      const count = r.learned ? LEARNED_THRESHOLD : r.correctCount ?? 0;
+      if (!prev || count > prev.correctCount || r.learned) {
+        progressBySense[sk] = {
+          correctCount: Math.min(LEARNED_THRESHOLD, count),
+          learned: Boolean(r.learned) || count >= LEARNED_THRESHOLD,
+        };
+      }
+    }
+
+    const senseZipf = tagged.senseZipf;
+    const senseMeta = tagged.senseMeta || state.senseMeta || {};
+    const items = [];
+    for (const [sk, z] of Object.entries(senseZipf)) {
+      if (!(z >= lo && z <= hi)) continue;
+      const meta = senseMeta[sk];
+      if (meta?.pos === "PROP") continue;
+      const [lemma, sense] = sk.split("::");
+      const gloss =
+        state.sensesInventory?.[lemma]?.senses?.find((s) => (s.id || "").toLowerCase() === sense)?.gloss ||
+        "";
+      if (/proper name/i.test(gloss)) continue;
+      const prog = progressBySense[sk];
+      const seen = state.seenSenseKeys?.has(sk) || Boolean(prog);
+      items.push({
+        key: sk,
+        lemma,
+        sense: sense || "s0",
+        zipf: z,
+        gloss,
+        seen,
+        correctCount: prog?.correctCount ?? 0,
+        learned: Boolean(prog?.learned),
+      });
+    }
+    items.sort((a, b) => b.zipf - a.zipf || a.lemma.localeCompare(b.lemma) || a.sense.localeCompare(b.sense));
+    state.masteryItems = items;
+
+    const seenN = items.filter((i) => i.seen).length;
+    const masteredN = items.filter((i) => i.learned).length;
+    $status.text(
+      `${items.length.toLocaleString()} senses · Zipf ${lo}–${hi} · ${seenN.toLocaleString()} seen · ${masteredN.toLocaleString()} mastered`
+    );
+    renderMasterySlice();
+  } catch (err) {
+    $status.text(err.message || "Could not load progress.");
+    $empty.removeClass("hidden");
+  }
+}
+
+function renderMasterySlice() {
+  const page = 40;
+  const items = state.masteryItems || [];
+  const start = state.masteryShown || 0;
+  const slice = items.slice(start, start + page);
+  const $list = $("#mastery-list");
+  const $empty = $("#mastery-empty");
+  const $more = $("#btn-mastery-more");
+
+  if (!start && !slice.length) {
+    $empty.removeClass("hidden");
+    $more.addClass("hidden");
+    return;
+  }
+  $empty.addClass("hidden");
+
+  for (const item of slice) {
+    const pct = Math.round((Math.min(LEARNED_THRESHOLD, item.correctCount) / LEARNED_THRESHOLD) * 100);
+    let status;
+    if (item.learned) status = "Mastered";
+    else if (item.seen) status = `Seen · ${item.correctCount}/${LEARNED_THRESHOLD} review`;
+    else status = "Not seen yet";
+    const $row = $(`<div class="card mastery-row"></div>`);
+    $row.append(
+      $("<div>", { class: "flex items-start justify-between gap-2" }).append(
+        $("<div>", { class: "min-w-0" }).append(
+          $("<p>", { class: "mastery-lemma" }).text(item.lemma),
+          $("<p>", { class: "mastery-meta" }).text(
+            `${item.sense} · Zipf ${item.zipf.toFixed(2)}${item.gloss ? ` · ${item.gloss}` : ""}`
+          )
+        ),
+        $("<span>", { class: "shrink-0 text-xs font-medium", style: "color:var(--muted)" }).text(status)
+      )
+    );
+    $row.append($(`<div class="mastery-bar"><span style="width:${pct}%"></span></div>`));
+    $row.on("click", () => {
+      setWordScreenTab("lookup");
+      $("#word-lookup-input").val(item.lemma);
+      runWordLookup(item.lemma).catch((e) => showToast(e.message || "Lookup failed."));
+    });
+    $row.css("cursor", "pointer");
+    $list.append($row);
+  }
+  state.masteryShown = start + slice.length;
+  $more.toggleClass("hidden", state.masteryShown >= items.length);
+}
+
+async function ensureLookupTagged(corpus) {
+  if (state.corpus === corpus && state.taggedData) return state.taggedData;
+  const key = `${state.lang}:${corpus}`;
+  if (state.lookupTaggedCache[key]) return state.lookupTaggedCache[key];
+  if (!(await taggedCorpusAvailable(state.lang, corpus))) return null;
+  const tagged = await loadTaggedCorpus(state.lang, corpus);
+  if (tagged) state.lookupTaggedCache[key] = tagged;
+  return tagged;
+}
+
+function renderWordLookupSenses(lemma) {
+  const $list = $("#word-lookup-senses").empty();
+  const $empty = $("#word-lookup-senses-empty").addClass("hidden");
+  const inv = state.sensesInventory?.[lemma] ?? null;
+  const senseZipf = state.lookupSenseZipf || state.senseZipf;
+  const lemmaZipf = state.lookupLemmaZipf || state.lemmaZipf;
+  const lemmaZ = lemmaZipf?.[lemma];
+  const senses =
+    inv?.senses?.length
+      ? inv.senses
+      : Object.keys(senseZipf || {})
+          .filter((k) => k.startsWith(`${lemma}::`))
+          .map((k) => ({ id: k.split("::")[1] || "s0", gloss: "" }));
+
+  if (!senses.length && lemmaZ == null) {
+    $empty.removeClass("hidden");
+    return;
+  }
+
+  if (lemmaZ != null) {
+    $list.append(
+      $("<div>", { class: "card px-3 py-2.5 text-sm" }).html(
+        `<span style="color:var(--muted)">Lemma Zipf</span> · <strong>${lemmaZ.toFixed(2)}</strong>` +
+          (inv?.monosemous ? ' · <span style="color:var(--muted)">monosemous</span>' : "")
+      )
+    );
+  }
+
+  for (const s of senses) {
+    const sid = s.id || "s0";
+    const sk = senseDedupKey(lemma, sid);
+    const z = senseZipf?.[sk];
+    const seen = state.seenSenseKeys?.has(sk);
+    const gloss = s.gloss || "—";
+    const zipfLabel = z != null ? `Zipf ${z.toFixed(2)}` : "Zipf —";
+    const $row = $("<div>", { class: "card px-3 py-2.5 text-sm space-y-1" });
+    $row.append(
+      $("<p>").html(
+        `<strong>${sid}</strong> · ${zipfLabel}` +
+          (seen ? ' · <span style="color:var(--primary)">practiced</span>' : "")
+      )
+    );
+    $row.append($("<p>", { style: "color:var(--muted)" }).text(gloss));
+    $list.append($row);
+  }
+}
+
+async function runWordLookup(rawWord) {
+  const word = (rawWord || "").trim();
+  if (!word) return showToast("Enter a word to look up.");
+
+  if (!state.sensesInventory && state.lang) {
+    state.sensesInventory = await loadSensesInventory(state.lang);
+  }
+
+  const corpus = $("#word-lookup-corpus").val() || state.corpus || "wiki";
+  const tagged = await ensureLookupTagged(corpus);
+  const lemma = resolveLemma(
+    word,
+    tagged || state.taggedData,
+    state.sensesInventory,
+    state.lemmaMap
+  );
+  state.lookupLemma = lemma;
+  state.lookupExampleOffset = 0;
+  state.lookupSenseZipf = tagged?.senseZipf || state.senseZipf;
+  state.lookupLemmaZipf = tagged?.lemmaZipf || state.lemmaZipf;
+
+  const reviews = await getSentenceReviews(state.lang);
+  const lemmaReviews = reviews.filter(
+    (r) => r.lemma && normalizeForMatch(r.lemma) === lemma
+  );
+  const active = lemmaReviews.find((r) => !r.learned);
+  const mastered = lemmaReviews.some((r) => r.learned);
+  const senseZipf = state.lookupSenseZipf || {};
+  const senseCount = Object.keys(senseZipf).filter((k) => k.startsWith(`${lemma}::`)).length;
+  const lemmaZ = state.lookupLemmaZipf?.[lemma];
+
+  $("#word-lookup-results").removeClass("hidden");
+  $("#word-lookup-term").text(lemma === normalizeForMatch(word) ? lemma : `${word} → ${lemma}`);
+  const metaParts = [];
+  if (lemmaZ != null) metaParts.push(`lemma Zipf ${lemmaZ.toFixed(2)}`);
+  if (senseCount) metaParts.push(`${senseCount} sense${senseCount === 1 ? "" : "s"} in corpus`);
+  $("#word-lookup-meta").text(metaParts.length ? metaParts.join(" · ") : "No Zipf from tagged corpus yet");
+  if (active) {
+    $("#word-lookup-review")
+      .text(`In review bank · ${active.correctCount ?? 0}/${LEARNED_THRESHOLD} mastered`)
+      .css("color", "var(--primary)");
+  } else if (mastered) {
+    $("#word-lookup-review").text("Previously mastered in review").css("color", "var(--muted)");
+  } else {
+    $("#word-lookup-review").text("").css("color", "var(--muted)");
+  }
+
+  renderWordLookupSenses(lemma);
+  $("#word-lookup-examples").empty();
+  $("#btn-word-lookup-more").addClass("hidden");
+  await loadWordLookupCorpusExamples({ append: false });
+}
+
+async function loadWordLookupCorpusExamples({ append = false } = {}) {
+  const corpus = $("#word-lookup-corpus").val() || "wiki";
+  const lemma = state.lookupLemma || $("#word-lookup-term").text().trim();
+  if (!lemma) return;
+
+  if (!append) {
+    state.lookupExampleOffset = 0;
+    $("#word-lookup-examples").empty();
+    const tagged = await ensureLookupTagged(corpus);
+    state.lookupSenseZipf = tagged?.senseZipf || (state.corpus === corpus ? state.senseZipf : null);
+    state.lookupLemmaZipf = tagged?.lemmaZipf || (state.corpus === corpus ? state.lemmaZipf : null);
+    renderWordLookupSenses(lemma);
+    const lemmaZ = state.lookupLemmaZipf?.[lemma];
+    const senseCount = Object.keys(state.lookupSenseZipf || {}).filter((k) =>
+      k.startsWith(`${lemma}::`)
+    ).length;
+    const metaParts = [];
+    if (lemmaZ != null) metaParts.push(`lemma Zipf ${lemmaZ.toFixed(2)}`);
+    if (senseCount) metaParts.push(`${senseCount} sense${senseCount === 1 ? "" : "s"} in corpus`);
+    if (metaParts.length) $("#word-lookup-meta").text(metaParts.join(" · "));
+  }
+
+  const $examples = $("#word-lookup-examples");
+  const $empty = $("#word-lookup-examples-empty").addClass("hidden");
+  const $more = $("#btn-word-lookup-more").addClass("hidden");
+  const $status = $("#word-lookup-corpus-status").text("Searching…");
+  const offset = state.lookupExampleOffset || 0;
+  const limit = 10;
+
+  try {
+    let page = null;
+    if (
+      state.dataLoaded &&
+      state.lang &&
+      state.corpus === corpus &&
+      state.sentences?.length &&
+      state.taggedData
+    ) {
+      page = sentencesContainingLemma(state.sentences, lemma, { offset, limit });
+    } else {
+      page = await findSentencesContainingLemma(state.lang, corpus, lemma, {
+        offset,
+        limit,
+        onProgress: (_pct, msg) => $status.text(msg),
+      });
+      if (!page) {
+        // Untagged corpus: surface-form fallback.
+        if (state.dataLoaded && state.corpus === corpus && state.sentences?.length) {
+          const all = sentencesContainingWord(state.sentences, lemma, offset + limit + 1);
+          const slice = all.slice(offset, offset + limit);
+          page = {
+            matches: slice,
+            nextOffset: offset + slice.length,
+            hasMore: all.length > offset + limit,
+          };
+        } else {
+          const file = sentenceFilename(state.lang, corpus);
+          const url = await resolveDataUrl(file, {
+            required: false,
+            fallbacks: legacyFallbacks(state.lang, corpus),
+          });
+          if (!url) {
+            $status.text("Corpus file not found for this language.");
+            $empty.removeClass("hidden");
+            return;
+          }
+          const matches = await findSentencesContainingWord(url, lemma, {
+            limit: offset + limit + 1,
+            onProgress: (_pct, msg) => $status.text(msg),
+          });
+          const slice = matches.slice(offset, offset + limit);
+          page = {
+            matches: slice,
+            nextOffset: offset + slice.length,
+            hasMore: matches.length > offset + limit,
+          };
+        }
+      }
+    }
+
+    const matches = page.matches || [];
+    state.lookupExampleOffset = page.nextOffset ?? offset + matches.length;
+    for (const m of matches) $examples.append(sentenceCardHtml(sentenceText(m)));
+    const totalShown = $examples.children().length;
+    $empty.toggleClass("hidden", totalShown > 0);
+    $more.toggleClass("hidden", !page.hasMore);
+    $status.text(
+      totalShown
+        ? `Showing ${totalShown} example${totalShown === 1 ? "" : "s"} for lemma “${lemma}”`
+        : `No examples for lemma “${lemma}”`
+    );
+  } catch (err) {
+    $status.text(err.message || "Search failed.");
+    $empty.removeClass("hidden");
+  }
 }
 
 async function sendChatMessage() {
@@ -2488,6 +3257,15 @@ $("#btn-review-browse").on("click", () => {
   startBrowsePractice().catch((e) => showToast(e.message || "Could not start browse."));
 });
 
+$("#btn-review-mastered-practice").on("click", () => {
+  startMasteredPractice().catch((e) => showToast(e.message || "Could not start mastered quiz."));
+});
+
+$(document).on("click", ".review-bank-tab", async function () {
+  state.reviewBankTab = this.dataset.tab || "active";
+  await openReviewScreen();
+});
+
 $("#btn-foundations-back").on("click", () => {
   renderLangHub();
   showScreen("screen-lang-hub");
@@ -2529,12 +3307,45 @@ $("#btn-mode-saved").on("click", async () => {
   await renderSavedScreen(true);
   showScreen("screen-saved");
 });
+$("#btn-mode-word-lookup").on("click", () => {
+  openWordLookupScreen().catch((e) => showToast(e.message || "Could not open word lookup."));
+});
+$("#btn-word-lookup-back").on("click", () => {
+  renderLangHub();
+  showScreen("screen-lang-hub");
+});
+$(".wl-tab").on("click", function () {
+  const tab = this.dataset.wlTab;
+  setWordScreenTab(tab);
+  if (tab === "progress") refreshMasteryPanel().catch((e) => showToast(e.message || "Progress failed."));
+  else setTimeout(() => $("#word-lookup-input").trigger("focus"), 50);
+});
+$("#mastery-corpus, #mastery-band").on("change", () => {
+  refreshMasteryPanel().catch((e) => showToast(e.message || "Progress failed."));
+});
+$("#btn-mastery-more").on("click", () => renderMasterySlice());
+$("#word-lookup-form").on("submit", (e) => {
+  e.preventDefault();
+  runWordLookup($("#word-lookup-input").val()).catch((err) => showToast(err.message || "Lookup failed."));
+});
+$("#word-lookup-corpus").on("change", () => {
+  if (!state.lookupLemma || $("#word-lookup-results").hasClass("hidden")) return;
+  loadWordLookupCorpusExamples({ append: false }).catch(() => {});
+});
+$("#btn-word-lookup-more").on("click", () => {
+  if (!state.lookupLemma) return;
+  loadWordLookupCorpusExamples({ append: true }).catch(() => {});
+});
 $("#btn-mode-flashcards").on("click", async () => {
   if (!hubLangAvailable()) return showToast("Flashcard practice needs a sentence corpus — coming soon for this language.");
   await seedBuiltinFlashcardSets(state.lang);
   state.flashcardSets = await getFlashcardSets(state.lang);
+  state.flashcardListTab = "yours";
   renderFlashcardList();
   showScreen("screen-flashcards");
+});
+$(".fc-tab").on("click", function () {
+  setFlashcardListTab(this.dataset.fcTab);
 });
 $("#btn-flash-back").on("click", () => { renderLangHub(); showScreen("screen-lang-hub"); });
 $("#btn-edit-back").on("click", () => { renderFlashcardList(); showScreen("screen-flashcards"); });
@@ -2646,6 +3457,128 @@ $("#review-interval").on("change", async () => {
   await persistSettings();
 });
 $("#filter-sentences-enable").on("change", syncFilterUI);
+$("#filter-advanced-enable").on("change", syncFilterUI);
+
+async function openConjugatorScreen() {
+  if (!conjugationsAvailable(state.lang)) {
+    showToast("Conjugator isn't available for this language yet.");
+    return;
+  }
+  const pack = await loadVerbPack(state.lang);
+  if (!pack?.verbs?.length) {
+    showToast("No verb data found for this language.");
+    return;
+  }
+  state.verbPack = pack;
+  $("#conj-flag").empty().append(flagEl(state.country, "md"));
+  const tenses = listTenses(pack);
+  state.conjTenseFilter = tenses.map((t) => t.id);
+  const $grid = $("#conj-tense-grid").empty();
+  for (const t of tenses) {
+    const id = `conj-tense-${t.id}`;
+    const $label = $(`<label for="${id}"></label>`);
+    const $cb = $(`<input type="checkbox" id="${id}" value="${t.id}" checked />`);
+    $cb.on("change", () => {
+      state.conjTenseFilter = [];
+      $("#conj-tense-grid input:checked").each(function () {
+        state.conjTenseFilter.push(this.value);
+      });
+    });
+    $label.append($cb, document.createTextNode(t.label));
+    $grid.append($label);
+  }
+  showScreen("screen-conjugator");
+}
+
+function startConjugatorGame() {
+  if (!state.verbPack) return;
+  if (!state.conjTenseFilter.length) {
+    showToast("Pick at least one tense.");
+    return;
+  }
+  state.conjScore = 0;
+  state.conjUsedKeys = new Set();
+  state.conjAwaiting = false;
+  $("#conj-score").text("0");
+  showScreen("screen-conj-game");
+  nextConjugationItem();
+}
+
+function nextConjugationItem() {
+  stopSpeech();
+  state.conjAwaiting = false;
+  const item = pickConjugationItem(state.verbPack, {
+    tenseFilter: state.conjTenseFilter,
+    usedKeys: state.conjUsedKeys,
+  });
+  if (!item) {
+    showToast("No conjugations match.");
+    showScreen("screen-conjugator");
+    return;
+  }
+  state.conjItem = item;
+  $("#conj-infinitive").text(item.infinitive);
+  $("#conj-pronoun").text(item.pronounLabel);
+  $("#conj-tense").text(item.tenseLabel);
+  $("#conj-gloss").text(item.gloss || "");
+  $("#conj-feedback").addClass("hidden").text("");
+  $("#conj-input").val("").prop("disabled", false).trigger("focus");
+}
+
+function checkConjugation() {
+  if (!state.conjItem || state.conjAwaiting) return;
+  const guess = $("#conj-input").val().trim();
+  if (!guess) return;
+  if (conjugationCorrect(guess, state.conjItem.answer)) {
+    state.conjAwaiting = true;
+    state.conjScore += 1;
+    $("#conj-score").text(String(state.conjScore));
+    $("#conj-feedback").removeClass("hidden").css("color", "var(--hot)").text("Correct");
+    if (state.enableTts) feedbackCorrect(state.conjItem.answer, state.lang).catch(() => {});
+    setTimeout(() => nextConjugationItem(), 650);
+  } else {
+    if (state.enableTts) feedbackWrong();
+    $("#conj-feedback").removeClass("hidden").css("color", "var(--cold)").text("Try again");
+  }
+}
+
+function revealConjugation() {
+  if (!state.conjItem || state.conjAwaiting) return;
+  state.conjAwaiting = true;
+  $("#conj-input").val(state.conjItem.answer).prop("disabled", true);
+  $("#conj-feedback").removeClass("hidden").css("color", "var(--muted)").text(state.conjItem.answer);
+  if (state.enableTts) feedbackWrong();
+  setTimeout(() => nextConjugationItem(), 900);
+}
+
+$("#btn-mode-conjugator").on("click", () => {
+  openConjugatorScreen().catch((e) => showToast(e.message || "Could not open conjugator."));
+});
+$("#btn-conj-back").on("click", () => {
+  renderLangHub();
+  showScreen("screen-lang-hub");
+});
+$("#btn-conj-start").on("click", startConjugatorGame);
+$("#btn-conj-exit").on("click", () => {
+  stopSpeech();
+  showScreen("screen-conjugator");
+});
+$("#btn-conj-check").on("click", checkConjugation);
+$("#btn-conj-hint").on("click", () => {
+  if (!state.conjItem || state.conjAwaiting) return;
+  const ans = state.conjItem.answer;
+  const cur = $("#conj-input").val();
+  if (cur.length >= ans.length) return;
+  $("#conj-input").val(ans.slice(0, cur.length + 1));
+});
+$("#btn-conj-skip").on("click", revealConjugation);
+$("#conj-input").on("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (state.conjAwaiting) nextConjugationItem();
+    else checkConjugation();
+  }
+});
 $("#filter-words-lo, #filter-words-hi, #filter-avgzipf-lo, #filter-avgzipf-hi").on("input", syncFilterUI);
 $("#corpus-select").on("change", async function () {
   if (!$("#screen-menu").hasClass("active")) return;
@@ -2719,18 +3652,32 @@ $("#btn-play-lookup-word").on("click", () => {
 $("#btn-analyze-word").on("click", () => runLookup(state.selectedText));
 $("#flashcard-set-search").on("input", renderFlashcardList);
 $("#btn-add-flashcard").on("click", () => openAddFlashcardModal(state.selectedText));
+$("#flashcard-set-search-pick").on("input", function () {
+  renderFlashcardSetCombobox($(this).val());
+}).on("focus", function () {
+  renderFlashcardSetCombobox($(this).val());
+});
+$("#flashcard-set-combobox").on("click", (e) => e.stopPropagation());
 $("#btn-confirm-add-word").on("click", async () => {
+  const word = (state.pendingFlashcardWord || "").trim();
   const setId = $("#flashcard-set-pick").val();
+  if (!word) return showToast("No word selected.");
   if (!setId) return showToast("Create a set first.");
   try {
-    validateFlashcardWord(state.selectedText);
-    await addWordToSet(setId, state.selectedText);
+    try {
+      validateFlashcardWord(word);
+    } catch {
+      await ensureFullVocab();
+      validateFlashcardWord(word);
+    }
+    await addWordToSet(setId, word);
+    state.pendingFlashcardWord = null;
     closeModal("modal-add-flashcard");
     showToast("Word added to set.");
   } catch (err) { showToast(err.message); }
 });
 $("#btn-create-set-inline").on("click", () => {
-  state.pendingWordAfterSetCreate = state.selectedText;
+  state.pendingWordAfterSetCreate = state.pendingFlashcardWord || state.selectedText;
   closeModal("modal-add-flashcard");
   openFlashcardSetModal("create");
 });

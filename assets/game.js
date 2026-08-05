@@ -1,11 +1,12 @@
 /** Static frontend game logic — no backend required. */
 
-export const WORD_PATTERN = /\b[\wáéíóúüñÁÉÍÓÚÜÑàèéìòùäöüßąćęłńóśźżА-яЁё'-]+\b/gu;
+/** Unicode letters + marks (ç, á, ã…). Avoid \\b — JS word boundaries break on accents. */
+export const WORD_PATTERN = /[\p{L}\p{M}0-9'’-]+/gu;
 export const ZIPF_MIN = 3.0;
 export const ZIPF_MAX = 8.0;
 /** @deprecated Prefer loading the full corpus via streamAllSentences. */
 export const TARGET_COUNT = Infinity;
-export const CORPUS_STATS_VERSION = 2;
+export const CORPUS_STATS_VERSION = 4;
 
 /** Zipf ranges — descriptions are language-neutral. */
 export const DIFFICULTY_PRESETS = [
@@ -150,6 +151,13 @@ export function nounLemmaKey(word, lang) {
   return w;
 }
 
+/** Lemma+sense key — conjugations / gender variants share one quiz slot. */
+export function senseDedupKey(lemma, sense) {
+  const lem = normalizeForMatch(lemma || "");
+  if (!lem) return "";
+  return `${lem}::${(sense || "s0").toLowerCase()}`;
+}
+
 /** Session/global dedup key — nouns collapse plural forms; verbs keep each surface form. */
 export function blankWordDedupKey(word, lang, lemmaMap) {
   const lower = normalizeForMatch(word);
@@ -235,10 +243,31 @@ export function estimateTokenZipf(word, lang, zipfDict, lemmaMap) {
   return ZIPF_UNKNOWN_ESTIMATE;
 }
 
-export function sentenceAverageZipf(sentence, lang, zipfDict, lemmaMap) {
-  const tokens = tokenizeWithPositions(sentence).filter((t) => isSentenceContentToken(t.text));
-  if (!tokens.length) return null;
-  const zipfs = tokens.map((t) => estimateTokenZipf(t.text, lang, zipfDict, lemmaMap));
+export function sentenceAverageZipf(
+  sentence,
+  lang,
+  zipfDict,
+  lemmaMap,
+  lemmaZipf = null,
+  tags = null,
+  senseZipf = null
+) {
+  const positioned = tokenizeWithPositions(sentence).filter((t) => isSentenceContentToken(t.text));
+  if (!positioned.length) return null;
+  const zipfs = positioned.map((t, i) => {
+    const tag = tags?.[i];
+    if (tag?.lemma && senseZipf) {
+      const sk = senseDedupKey(tag.lemma, tag.sense);
+      const z = senseZipf[sk] ?? lemmaZipf?.[normalizeForMatch(tag.lemma)] ?? 0;
+      return z > 0 ? z : ZIPF_UNKNOWN_ESTIMATE;
+    }
+    const word = tag?.lemma || t.text;
+    if (lemmaZipf) {
+      const z = effectiveZipf(word, lang, zipfDict, lemmaMap, lemmaZipf);
+      return z > 0 ? z : ZIPF_UNKNOWN_ESTIMATE;
+    }
+    return estimateTokenZipf(word, lang, zipfDict, lemmaMap);
+  });
   return zipfs.reduce((a, b) => a + b, 0) / zipfs.length;
 }
 
@@ -445,9 +474,12 @@ export function guessInfinitiveEs(word, zipfDict) {
   return null;
 }
 
-export function effectiveZipf(word, lang, zipfDict, lemmaMap) {
+export function effectiveZipf(word, lang, zipfDict, lemmaMap, lemmaZipf = null) {
   const lower = word.toLowerCase();
-  const tryLookup = (w) => zipfDict[w] ?? 0;
+  const tryLookup = (w) => {
+    if (lemmaZipf && lemmaZipf[w] != null) return lemmaZipf[w];
+    return zipfDict[w] ?? 0;
+  };
 
   let z = tryLookup(lower);
   if (z > 0) return z;
@@ -469,17 +501,53 @@ export function effectiveZipf(word, lang, zipfDict, lemmaMap) {
   return z;
 }
 
-export function zipfInRange(word, lo, hi, lang, zipfDict, lemmaMap) {
-  const z = effectiveZipf(word, lang, zipfDict, lemmaMap);
+export function zipfInRange(word, lo, hi, lang, zipfDict, lemmaMap, lemmaZipf = null) {
+  const z = effectiveZipf(word, lang, zipfDict, lemmaMap, lemmaZipf);
   return z >= lo && z <= hi;
 }
 
-export function eligibleBlankIndices(tokens, lo, hi, lang, zipfDict, lemmaMap) {
+export function eligibleBlankIndices(
+  tokens,
+  lo,
+  hi,
+  lang,
+  zipfDict,
+  lemmaMap,
+  {
+    tags = null,
+    posFilter = null,
+    lemmaZipf = null,
+    senseZipf = null,
+    seenSenseKeys = null,
+    requireTags = false,
+  } = {}
+) {
   const indices = [];
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok.length < 3 || !/^\p{L}+$/u.test(tok)) continue;
-    if (!zipfInRange(tok, lo, hi, lang, zipfDict, lemmaMap)) continue;
+    const tag = tags?.[i];
+    // When a tagged corpus is loaded, only blank tokens that have tags.
+    if (requireTags && (!tag || !tag.lemma || !tag.pos)) continue;
+    // Never blank proper nouns / names.
+    if (tag?.pos === "PROP") continue;
+    if (posFilter?.enabled) {
+      if (!tag?.pos) continue;
+      const allowed = posFilter.allowed;
+      if (!allowed?.length || !allowed.includes(tag.pos)) continue;
+    }
+    if (tag?.lemma && seenSenseKeys) {
+      const sk = senseDedupKey(tag.lemma, tag.sense);
+      if (sk && seenSenseKeys.has(sk)) continue;
+    }
+    let z;
+    if (tag?.lemma && senseZipf) {
+      const sk = senseDedupKey(tag.lemma, tag.sense);
+      z = senseZipf[sk] ?? lemmaZipf?.[normalizeForMatch(tag.lemma)] ?? 0;
+    } else {
+      z = effectiveZipf(tag?.lemma || tok, lang, zipfDict, lemmaMap, lemmaZipf);
+    }
+    if (!(z >= lo && z <= hi)) continue;
     if (answerAppearsElsewhere(tokens, i, tok)) continue;
     indices.push(i);
   }
@@ -492,21 +560,8 @@ export async function loadZipfDict(lang) {
   return await res.json();
 }
 
-/** Per-sentence avg Zipf + word counts (static file, IndexedDB cache, or computed live). */
-export async function loadCorpusStats(lang, corpus = "wiki") {
-  const names = [corpusStatsFilename(lang, corpus)];
-  if (corpus === "wiki") names.push(`${lang}.json`);
-  for (const name of names) {
-    try {
-      const res = await fetch(assetUrl(`corpus-stats/${name}`));
-      if (!res.ok) continue;
-      const data = await res.json();
-      data.source = "file";
-      return data;
-    } catch {
-      /* try next */
-    }
-  }
+/** Prefer live / IndexedDB stats — static corpus-stats files are optional legacy only. */
+export async function loadCorpusStats(_lang, _corpus = "wiki") {
   return null;
 }
 
@@ -565,7 +620,15 @@ function buildWordHistogram(wordCounts) {
 }
 
 /** Compute per-sentence word counts + avg Zipf; annotates sentence entries in place. */
-export function buildCorpusStatsFromSentences(sentences, lang, zipfDict, lemmaMap, corpus = "wiki") {
+export function buildCorpusStatsFromSentences(
+  sentences,
+  lang,
+  zipfDict,
+  lemmaMap,
+  corpus = "wiki",
+  lemmaZipf = null,
+  senseZipf = null
+) {
   const avgZipfByLine = [];
   const wordCountByLine = [];
   const avgValues = [];
@@ -575,7 +638,15 @@ export function buildCorpusStatsFromSentences(sentences, lang, zipfDict, lemmaMa
     const text = sentenceText(entry);
     const positioned = tokenizeWithPositions(text);
     const wc = positioned.length;
-    const avg = sentenceAverageZipf(text, lang, zipfDict, lemmaMap);
+    const avg = sentenceAverageZipf(
+      text,
+      lang,
+      zipfDict,
+      lemmaMap,
+      lemmaZipf,
+      entry.tags,
+      senseZipf
+    );
     const idx = sentenceLineIndex(entry);
     if (idx != null) {
       avgZipfByLine[idx] = avg;
@@ -583,7 +654,7 @@ export function buildCorpusStatsFromSentences(sentences, lang, zipfDict, lemmaMa
     }
     entry.wordCount = wc;
     entry.avgZipf = avg;
-    if (wc > 0) {
+    if (wc > 0 && avg != null) {
       avgValues.push(avg);
       wordValues.push(wc);
     }
@@ -677,6 +748,11 @@ export function indexZipfPuzzles(
     wordExposure = null,
     maxExposure = MAX_BLANK_WORD_EXPOSURE,
     blockedWordKeys = null,
+    posFilter = null,
+    lemmaZipf = null,
+    senseZipf = null,
+    seenSenseKeys = null,
+    requireTags = false,
   } = {}
 ) {
   const puzzles = [];
@@ -695,7 +771,14 @@ export function indexZipfPuzzles(
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < MIN_PUZZLE_WORDS) continue;
     const texts = positioned.map((t) => t.text);
-    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
+    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap, {
+      tags: entry.tags,
+      posFilter,
+      lemmaZipf,
+      senseZipf,
+      seenSenseKeys,
+      requireTags,
+    });
     for (const blankIndex of candidates) {
       const answer = positioned[blankIndex].text;
       if (
@@ -708,16 +791,26 @@ export function indexZipfPuzzles(
       ) {
         continue;
       }
+      const tag = entry.tags?.[blankIndex];
       puzzles.push({
         sentence,
         lineIndex,
         tokens: positioned,
         blankIndex,
         answer,
+        lemma: tag?.lemma || null,
+        pos: tag?.pos || null,
+        sense: tag?.sense || null,
       });
     }
   }
   return puzzles;
+}
+
+function puzzleSenseAllowed(p, seenSenseKeys) {
+  if (!seenSenseKeys || !p?.lemma) return true;
+  const sk = senseDedupKey(p.lemma, p.sense);
+  return !sk || !seenSenseKeys.has(sk);
 }
 
 export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
@@ -729,9 +822,10 @@ export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
     wordExposure,
     maxExposure = MAX_BLANK_WORD_EXPOSURE,
     blockedWordKeys = null,
+    seenSenseKeys = null,
   } = wordOpts;
-  let available = pool.filter((p) => {
-    if (usedKeys.has(puzzleKey(p))) return false;
+  const allowed = (p) => {
+    if (!puzzleSenseAllowed(p, seenSenseKeys)) return false;
     if (lang && lemmaMap) {
       return blankWordAllowed(p.answer, lang, lemmaMap, {
         sessionBlankKeys,
@@ -741,20 +835,11 @@ export function pickFromPuzzlePool(pool, usedKeys, wordOpts = {}) {
       });
     }
     return true;
-  });
+  };
+  let available = pool.filter((p) => !usedKeys.has(puzzleKey(p)) && allowed(p));
   if (!available.length) {
     usedKeys.clear();
-    available = pool.filter((p) => {
-      if (lang && lemmaMap) {
-        return blankWordAllowed(p.answer, lang, lemmaMap, {
-          sessionBlankKeys,
-          wordExposure,
-          maxExposure,
-          blockedWordKeys,
-        });
-      }
-      return true;
-    });
+    available = pool.filter(allowed);
   }
   if (!available.length) return null;
   const pick = available[Math.floor(Math.random() * available.length)];
@@ -877,6 +962,70 @@ export async function streamAllSentences(url, onProgress) {
   return { lines, lang, byteLength: total || bytesRead };
 }
 
+/** Collect up to `limit` sentences whose tokens match `word` (accent-aware). */
+export function sentencesContainingWord(sentences, word, limit = 40) {
+  const needle = normalizeForMatch(word);
+  if (!needle) return [];
+  const out = [];
+  for (const entry of sentences) {
+    const text = sentenceText(entry);
+    if (!text) continue;
+    const hit = tokenizeWithPositions(text).some((t) => normalizeForMatch(t.text) === needle);
+    if (!hit) continue;
+    out.push(typeof entry === "string" ? { text, lineIndex: null } : { text, lineIndex: entry.lineIndex ?? null });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Stream a corpus file and return example sentences containing `word`. */
+export async function findSentencesContainingWord(url, word, { limit = 40, onProgress } = {}) {
+  const needle = normalizeForMatch(word);
+  if (!needle) return [];
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Could not load sentences (${res.status})`);
+  const total = Number(res.headers.get("Content-Length")) || 0;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const matches = [];
+  let fileLineIndex = -1;
+  let bytesRead = 0;
+
+  function processLine(raw) {
+    if (matches.length >= limit) return;
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("#")) return;
+    const line = sentenceOnly(trimmed);
+    if (!line) return;
+    fileLineIndex += 1;
+    const hit = tokenizeWithPositions(line).some((t) => normalizeForMatch(t.text) === needle);
+    if (hit) matches.push({ text: line, lineIndex: fileLineIndex });
+  }
+
+  while (matches.length < limit) {
+    const { done, value } = await reader.read();
+    if (done) {
+      if (buffer.trim()) processLine(buffer);
+      break;
+    }
+    bytesRead += value.byteLength;
+    if (onProgress) {
+      const ratio = total > 0 ? Math.min(1, bytesRead / total) : 0.5;
+      onProgress(Math.min(99, Math.round(ratio * 100)), `Searching… ${matches.length} found`);
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      processLine(buffer.slice(0, idx));
+      buffer = buffer.slice(idx + 1);
+      if (matches.length >= limit) break;
+    }
+  }
+  try { reader.cancel(); } catch { /* ignore */ }
+  return matches;
+}
+
 function isSkipped(entry, skippedSet) {
   if (!skippedSet) return false;
   const text = sentenceText(entry);
@@ -920,21 +1069,74 @@ export function buildPuzzle(
     const positioned = tokenizeWithPositions(sentence);
     if (positioned.length < MIN_PUZZLE_WORDS) continue;
     const texts = positioned.map((t) => t.text);
-    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap);
+    const candidates = eligibleBlankIndices(texts, lo, hi, lang, zipfDict, lemmaMap, {
+      tags: entry.tags,
+      posFilter: wordOpts?.posFilter ?? null,
+      lemmaZipf: wordOpts?.lemmaZipf ?? null,
+      senseZipf: wordOpts?.senseZipf ?? null,
+      seenSenseKeys: wordOpts?.seenSenseKeys ?? null,
+      requireTags: wordOpts?.requireTags ?? false,
+    });
     const allowed = candidates.filter((i) =>
       blankWordAllowed(positioned[i].text, lang, lemmaMap, wordOpts ?? {})
     );
     if (allowed.length === 0) continue;
     const blankIndex = allowed[Math.floor(Math.random() * allowed.length)];
+    const tag = entry.tags?.[blankIndex];
     return {
       sentence,
       lineIndex,
       tokens: positioned,
       blankIndex,
       answer: positioned[blankIndex].text,
+      lemma: tag?.lemma || null,
+      pos: tag?.pos || null,
+      sense: tag?.sense || null,
     };
   }
   return null;
+}
+
+/** Count sentences that contain any of `words` (and optionally pass length/avg-Zipf filters). */
+export function countSentencesContainingWords(
+  sentences,
+  words,
+  {
+    filters = null,
+    lang = null,
+    zipfDict = null,
+    lemmaMap = null,
+    corpusStats = null,
+    skippedSet = null,
+  } = {}
+) {
+  const targets = new Set(
+    (words || []).map((w) => String(w || "").toLowerCase().normalize("NFC")).filter(Boolean)
+  );
+  if (!targets.size || !sentences?.length) return { matched: 0, withWords: 0 };
+
+  let withWords = 0;
+  let matched = 0;
+  for (const entry of sentences) {
+    if (isSkipped(entry, skippedSet)) continue;
+    const sentence = sentenceText(entry);
+    if (!sentence) continue;
+    const positioned = tokenizeWithPositions(sentence);
+    if (!positioned.some((t) => targets.has(t.text.toLowerCase().normalize("NFC")))) continue;
+    withWords += 1;
+    const lineIndex = sentenceLineIndex(entry);
+    if (
+      filters?.enabled &&
+      !sentencePassesFilters(sentence, filters, lang, zipfDict, lemmaMap, corpusStats, lineIndex, {
+        wordCount: entry.wordCount,
+        avgZipf: entry.avgZipf,
+      })
+    ) {
+      continue;
+    }
+    matched += 1;
+  }
+  return { matched, withWords };
 }
 
 /** Scan all sentences and collect every puzzle that blanks a flashcard word. */
@@ -1061,7 +1263,9 @@ export async function translateText(text, fromLang, toLang, cache) {
   );
   if (!res.ok) throw new Error("translation failed");
   const data = await res.json();
-  const result = data[0][0][0];
+  // Google returns one segment per sentence/clause — join all so multi-part lines translate fully.
+  const segments = Array.isArray(data?.[0]) ? data[0] : [];
+  const result = segments.map((seg) => (Array.isArray(seg) ? seg[0] : "")).filter(Boolean).join("") || "";
   cache[key] = result;
   return result;
 }

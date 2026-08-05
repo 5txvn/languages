@@ -104,7 +104,15 @@ export function playWrongSound() {
 /** Invalidate in-flight speech (e.g. when advancing to the next sentence). */
 export function stopSpeech() {
   speechEpoch += 1;
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (!window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();
+    // Chrome sometimes ignores a single cancel while an utterance is queued.
+    window.speechSynthesis.pause();
+    window.speechSynthesis.cancel();
+  } catch {
+    /* ignore */
+  }
 }
 
 function pickVoice(locale) {
@@ -125,7 +133,19 @@ export function speakText(text, langCode, { rate } = {}) {
   const locale = localeForLang(langCode);
   const utterRate = rate ?? ttsRate;
   return new Promise((resolve) => {
-    window.speechSynthesis.cancel();
+    if (epoch !== speechEpoch) {
+      resolve();
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+    if (epoch !== speechEpoch) {
+      resolve();
+      return;
+    }
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = locale;
     utter.rate = utterRate;
@@ -133,10 +153,22 @@ export function speakText(text, langCode, { rate } = {}) {
     if (voice) utter.voice = voice;
     const done = () => {
       if (epoch === speechEpoch) resolve();
+      else resolve();
     };
     utter.onend = done;
     utter.onerror = done;
-    window.speechSynthesis.speak(utter);
+    // Defer speak so a cancel from navigation wins the race.
+    queueTimeout(() => {
+      if (epoch !== speechEpoch) {
+        resolve();
+        return;
+      }
+      try {
+        window.speechSynthesis.speak(utter);
+      } catch {
+        resolve();
+      }
+    }, 0);
   });
 }
 
@@ -153,6 +185,7 @@ export function speakWord(word, langCode) {
 export async function feedbackCorrect(sentence, langCode) {
   const epoch = speechEpoch;
   playCorrectSound();
+  await new Promise((r) => setTimeout(r, 180));
   if (epoch !== speechEpoch) return;
   await speakSentence(sentence, langCode);
 }

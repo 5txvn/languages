@@ -3,7 +3,7 @@
 import { LEARNED_THRESHOLD, nextReviewAfterCorrect, nextReviewAfterWrong } from "./srs.js";
 
 const DB_NAME = "lang-practice";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let dbPromise = null;
 
@@ -61,6 +61,10 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains("corpus_stats")) {
         db.createObjectStore("corpus_stats", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("sense_seen")) {
+        const senses = db.createObjectStore("sense_seen", { keyPath: "id" });
+        senses.createIndex("langCode", "langCode", { unique: false });
       }
 
       if (e.oldVersion < 2 && db.objectStoreNames.contains("stats")) {
@@ -465,6 +469,75 @@ export async function countDueReviews(langCode) {
   return (await getDueReviews(langCode)).length;
 }
 
+export async function getLearnedReviews(langCode, { skippedSet = null } = {}) {
+  const skipped = skippedSet ?? (await getSkippedSet(langCode));
+  const all = await getSentenceReviews(langCode);
+  return all
+    .filter((r) => {
+      if (!r.learned) return false;
+      if (r.lineIndex != null && skipped.indices?.has(r.lineIndex)) return false;
+      const norm = r.sentence?.trim().normalize("NFC");
+      if (norm && skipped.sentences?.has(norm)) return false;
+      return true;
+    })
+    .sort((a, b) => (b.lastAttemptAt ?? 0) - (a.lastAttemptAt ?? 0));
+}
+
+export async function requeueLearnedReview(id) {
+  const existing = await getSentenceReview(id);
+  if (!existing) throw new Error("Review not found.");
+  const row = {
+    ...existing,
+    correctCount: 0,
+    learned: false,
+    nextReviewAt: nextReviewAfterWrong(),
+    lastAttemptAt: Date.now(),
+  };
+  await tx("sentence_reviews", "readwrite", (os) => os.put(row));
+  return row;
+}
+
+export async function getSeenSenseKeySet(langCode) {
+  const db = await openDb();
+  if (!db.objectStoreNames.contains("sense_seen")) return new Set();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction("sense_seen", "readonly");
+    const req = t.objectStore("sense_seen").index("langCode").getAll(langCode);
+    req.onsuccess = () => {
+      const set = new Set();
+      for (const row of req.result ?? []) {
+        if (row.senseKey) set.add(row.senseKey);
+      }
+      resolve(set);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function markSenseSeen(langCode, senseKey, { lemma = "", sense = "" } = {}) {
+  if (!senseKey) return;
+  const db = await openDb();
+  if (!db.objectStoreNames.contains("sense_seen")) return;
+  const id = `${langCode}:${senseKey}`;
+  await tx("sense_seen", "readwrite", (os) => {
+    os.put({
+      id,
+      langCode,
+      senseKey,
+      lemma,
+      sense,
+      seenAt: Date.now(),
+    });
+  });
+}
+
+export async function clearSenseSeen(langCode, senseKey) {
+  if (!senseKey) return;
+  const db = await openDb();
+  if (!db.objectStoreNames.contains("sense_seen")) return;
+  await tx("sense_seen", "readwrite", (os) => os.delete(`${langCode}:${senseKey}`));
+}
+
 async function getSentenceReview(id) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -483,13 +556,13 @@ export async function logSentenceAttempt({
   typed = "",
   correct,
   hintCount = 0,
+  lemma = "",
+  sense = "",
 }) {
   const norm = sentence.trim().normalize("NFC");
   const id = sentenceId(langCode, norm);
   const existing = await getSentenceReview(id);
-  const shouldTrack = existing || !correct || hintCount > 1;
-  if (!shouldTrack) return null;
-
+  // Always track every practiced sentence in the review bank.
   const attempts = [
     ...(existing?.attempts ?? []),
     { at: Date.now(), typed, answer: answer ?? "", correct, hintCount },
@@ -507,6 +580,8 @@ export async function logSentenceAttempt({
         ? Date.now() + 30 * 24 * 60 * 60 * 1000
         : nextReviewAfterCorrect(correctCount);
   } else {
+    // Wrong answer resets mastery progress entirely (back to 0/5).
+    correctCount = 0;
     wrongCount += 1;
     nextReviewAt = nextReviewAfterWrong();
   }
@@ -517,6 +592,8 @@ export async function logSentenceAttempt({
     sentence: norm,
     lineIndex: lineIndex ?? null,
     answer: answer ?? "",
+    lemma: lemma || existing?.lemma || "",
+    sense: sense || existing?.sense || "",
     correctCount,
     wrongCount,
     learned: correctCount >= LEARNED_THRESHOLD,
@@ -612,6 +689,7 @@ export async function clearAllData() {
       "sentence_reviews",
       "word_exposure",
       "corpus_stats",
+      "sense_seen",
     ].filter((n) => db.objectStoreNames.contains(n));
     const t = db.transaction(names, "readwrite");
     for (const name of names) t.objectStore(name).clear();

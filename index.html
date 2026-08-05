@@ -110,6 +110,38 @@
       border-radius: var(--radius-sm) !important;
       background: var(--card) !important;
     }
+    #word-lookup-input,
+    #word-lookup-input:focus,
+    #word-lookup-input:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+      border-color: var(--border) !important;
+    }
+    #word-lookup-input::-webkit-search-decoration,
+    #word-lookup-input::-webkit-search-cancel-button,
+    #word-lookup-input::-webkit-search-results-button,
+    #word-lookup-input::-webkit-search-results-decoration {
+      display: none;
+    }
+    .wl-tabs, .fc-tabs {
+      display: flex; gap: .35rem; margin-bottom: .85rem;
+      border-bottom: 1px solid var(--border); padding-bottom: .35rem;
+    }
+    .wl-tab, .fc-tab {
+      flex: 1; border: none; background: transparent; cursor: pointer;
+      font: inherit; font-size: .8125rem; font-weight: 600; color: var(--muted);
+      padding: .45rem .5rem; border-radius: var(--radius-sm);
+    }
+    .wl-tab.is-active, .fc-tab.is-active {
+      color: var(--text); background: color-mix(in srgb, var(--border) 35%, transparent);
+    }
+    .mastery-bar {
+      height: 4px; border-radius: 9999px; background: var(--border); overflow: hidden; margin-top: .35rem;
+    }
+    .mastery-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 9999px; }
+    .mastery-row { padding: .7rem .85rem; }
+    .mastery-row .mastery-lemma { font-weight: 600; font-size: .9rem; }
+    .mastery-row .mastery-meta { font-size: .72rem; color: var(--muted); margin-top: .15rem; }
     .prose-content { line-height: 1.65; color: var(--text); }
     .prose-content h1 { font-size: 1.45rem; font-weight: 700; margin: 0 0 1rem; letter-spacing: -.02em; }
     .prose-content h2 { font-size: 1.05rem; font-weight: 700; margin: 1.35rem 0 .5rem; }
@@ -174,8 +206,42 @@
     .lang-pick { cursor: pointer; width: 100%; max-width: 5.5rem; }
     .lang-pick.selected { border-color: var(--primary) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent); }
     .score-pill.score-bounce { animation: scoreBounce .55s ease; }
-    .load-track { margin-top: 1rem; height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
-    #load-bar { display: block; height: 100%; max-width: 100%; width: 0; border-radius: var(--radius-pill); background: var(--primary); transition: width .2s ease; }
+    .load-spinner {
+      position: relative; width: 4.5rem; height: 4.5rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .load-spinner svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+    .load-spinner .load-ring-bg { fill: none; stroke: var(--border); stroke-width: 3; }
+    .load-spinner .load-ring-fg {
+      fill: none; stroke: var(--primary); stroke-width: 3; stroke-linecap: round;
+      stroke-dasharray: 100; stroke-dashoffset: 100;
+      transition: stroke-dashoffset .25s ease;
+    }
+    .load-spinner.is-indeterminate svg { animation: loadSpin 0.9s linear infinite; }
+    .load-spinner.is-indeterminate .load-ring-fg {
+      stroke-dasharray: 28 72; stroke-dashoffset: 0; transition: none;
+    }
+    #load-pct {
+      position: relative; z-index: 1; font-size: .85rem; font-weight: 700;
+      font-variant-numeric: tabular-nums; color: var(--text); line-height: 1;
+    }
+    #load-pct:empty { display: none; }
+    @keyframes loadSpin {
+      from { transform: rotate(-90deg); }
+      to { transform: rotate(270deg); }
+    }
+    #file-protocol-banner {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      align-items: center; justify-content: center; padding: 1.5rem;
+      background: var(--bg); color: var(--text); text-align: center;
+    }
+    #file-protocol-banner.show { display: flex; }
+    #file-protocol-banner .card { max-width: 26rem; padding: 1.75rem; }
+    #file-protocol-banner code {
+      display: inline-block; margin-top: .75rem; padding: .45rem .75rem;
+      border-radius: .5rem; background: color-mix(in srgb, var(--border) 45%, transparent);
+      font-size: .85rem;
+    }
     @keyframes scoreBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.18); } 60% { transform: scale(.95); } }
     @keyframes favBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.35); } 60% { transform: scale(.9); } }
     #btn-favorite.fav-bounce .action-icon { animation: favBounce .55s ease; }
@@ -432,7 +498,8 @@
       background: var(--primary);
       color: #fff;
     }
-    .select-field.is-enhanced { position: absolute !important; opacity: 0 !important; pointer-events: none !important; width: 1px !important; height: 1px !important; }
+    .select-field.is-enhanced,
+    select.is-enhanced { position: absolute !important; opacity: 0 !important; pointer-events: none !important; width: 1px !important; height: 1px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }
     .game-progress-wrap { display: flex; flex-direction: column; align-items: center; gap: .25rem; min-width: 0; width: 100%; max-width: 18rem; }
     .game-progress-bar { width: 100%; height: 7px; border-radius: 9999px; background: var(--border); overflow: hidden; }
     .game-progress-fill { height: 100%; background: var(--hot); border-radius: 9999px; transition: width .25s ease; }
@@ -468,7 +535,39 @@
     .preset-tile-custom { grid-column: 1 / -1; cursor: default; }
     .preset-tile-custom:hover { border-color: var(--border); }
     .preset-tile-custom .btn-custom-start { cursor: pointer; }
-    .preset-tile-custom .btn-custom-start:hover { color: var(--primary); }
+    .preset-chip-row { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .preset-chip {
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+      border-radius: 9999px; padding: .28rem .7rem; font-size: .72rem; font-weight: 600; cursor: pointer;
+    }
+    .preset-chip:hover { border-color: var(--primary); }
+    .preset-chip.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .preset-map-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem;
+    }
+    @media (min-width: 480px) {
+      .preset-map-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .preset-map-card {
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+      gap: .35rem; padding: .9rem .65rem; min-height: 8.5rem; cursor: pointer;
+      transition: border-color .15s, transform .15s;
+    }
+    .preset-map-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+    .preset-map-icon { font-size: 1.65rem; line-height: 1; }
+    .preset-map-name { font-size: .82rem; font-weight: 700; line-height: 1.2; }
+    .preset-map-meta, .preset-map-rounds { font-size: .68rem; color: var(--muted); }
+    .preset-map-bar {
+      display: block; width: 100%; height: 5px; margin-top: .25rem;
+      border-radius: 9999px; background: var(--border); overflow: hidden;
+    }
+    .preset-map-fill { display: block; height: 100%; background: var(--primary); border-radius: 9999px; }
+    .pos-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .75rem; }
+    .pos-filter-grid label { display: flex; align-items: center; gap: .45rem; font-size: .8rem; cursor: pointer; }
+    .conj-prompt { text-align: center; }
+    .conj-prompt .conj-inf { font-size: 1.35rem; font-weight: 700; }
+    .conj-prompt .conj-meta { margin-top: .5rem; font-size: .9rem; color: var(--muted); }
+    .conj-prompt .conj-gloss { margin-top: .25rem; font-size: .8rem; color: var(--muted); font-style: italic; }
     .filter-fields.disabled { opacity: .45; pointer-events: none; }
     .article-row { display: flex; align-items: center; gap: .75rem; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); cursor: pointer; text-align: left; width: 100%; }
     .article-row:hover { border-color: var(--primary); }
@@ -478,13 +577,22 @@
 </head>
 <body>
 
+  <div id="file-protocol-banner" role="alert">
+    <div class="card">
+      <p class="text-lg font-semibold">Open Wikora through a local server</p>
+      <p class="mt-2 text-sm" style="color:var(--muted)">Chrome blocks ES modules on <code>file://</code>. From the project folder run:</p>
+      <code>npm start</code>
+      <p class="mt-3 text-sm" style="color:var(--muted)">Then open <strong>http://localhost:5173</strong></p>
+    </div>
+  </div>
+
   <section id="screen-loading" class="screen active items-center justify-center px-6">
-    <div class="card w-full max-w-sm p-8 text-center">
-      <p class="text-sm font-medium" style="color:var(--muted)">Loading</p>
-      <div class="load-track">
-        <div id="load-bar"></div>
-      </div>
-      <p id="load-status" class="mt-3 text-sm" style="color:var(--muted)">Starting…</p>
+    <div class="load-spinner is-indeterminate" id="load-spinner" aria-busy="true" aria-label="Loading">
+      <svg viewBox="0 0 36 36" aria-hidden="true">
+        <circle class="load-ring-bg" cx="18" cy="18" r="15.9155"></circle>
+        <circle id="load-progress-ring" class="load-ring-fg" cx="18" cy="18" r="15.9155" pathLength="100"></circle>
+      </svg>
+      <span id="load-pct"></span>
     </div>
   </section>
 
@@ -547,7 +655,7 @@
             <span class="hub-tile-label">Sentences</span>
             <span class="hub-tile-desc">Fill-in-the-blank practice</span>
           </button>
-          <button id="btn-mode-articles" type="button" class="hub-tile">
+          <button id="btn-mode-articles" type="button" class="hub-tile hidden" aria-hidden="true" tabindex="-1">
             <span class="hub-tile-icon" aria-hidden="true">¶</span>
             <span class="hub-tile-label">Articles</span>
             <span class="hub-tile-desc">Longer reading excerpts</span>
@@ -557,10 +665,20 @@
             <span class="hub-tile-label">Flashcards</span>
             <span class="hub-tile-desc">Your vocabulary sets</span>
           </button>
+          <button id="btn-mode-conjugator" type="button" class="hub-tile hidden">
+            <span class="hub-tile-icon" aria-hidden="true">⟳</span>
+            <span class="hub-tile-label">Conjugator</span>
+            <span class="hub-tile-desc">Practice verb forms</span>
+          </button>
           <button id="btn-mode-saved" type="button" class="hub-tile">
             <span class="hub-tile-icon" aria-hidden="true">★</span>
             <span class="hub-tile-label">Saved</span>
             <span class="hub-tile-desc">Bookmarked & reported</span>
+          </button>
+          <button id="btn-mode-word-lookup" type="button" class="hub-tile">
+            <span class="hub-tile-icon" aria-hidden="true">⌕</span>
+            <span class="hub-tile-label">Words</span>
+            <span class="hub-tile-desc">Lookup & mastery progress</span>
           </button>
           <button id="btn-mode-revisit" type="button" class="hub-tile hub-tile-wide">
             <span class="hub-tile-icon" aria-hidden="true">↻</span>
@@ -625,21 +743,24 @@
     </header>
     <div class="scroll-panel px-5 pb-8">
       <div class="mx-auto w-full max-w-lg space-y-3">
+        <div class="fc-tabs" role="tablist">
+          <button type="button" class="fc-tab is-active" data-fc-tab="yours" role="tab">Your sets</button>
+          <button type="button" class="fc-tab" data-fc-tab="presets" role="tab">Preset sets</button>
+        </div>
         <input id="flashcard-set-search" type="search" placeholder="Search sets…" class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)" />
-        <p id="flashcard-user-label" class="flashcard-section-label hidden">Your sets</p>
-        <div id="flashcard-user-list" class="space-y-2"></div>
-        <p id="flashcard-user-empty" class="hidden text-sm text-center py-2" style="color:var(--muted)">No custom sets yet. Create one below.</p>
-        <details id="flashcard-builtin-wrap" class="flashcard-builtin-wrap">
-          <summary id="flashcard-builtin-summary">Wikora preset sets</summary>
-          <div class="flashcard-builtin-body">
-            <div id="flashcard-builtin-list" class="space-y-2"></div>
-          </div>
-        </details>
-        <button id="btn-new-set" type="button" class="btn-ghost w-full py-3 text-sm font-semibold">+ New Set</button>
-        <label class="btn-ghost flex w-full cursor-pointer items-center justify-center py-3 text-sm font-semibold">
-          Import Flashcard Set (JSON)
-          <input id="import-set-file" type="file" accept=".json,application/json" class="hidden" />
-        </label>
+        <div id="flashcard-tab-yours">
+          <div id="flashcard-user-list" class="space-y-2"></div>
+          <p id="flashcard-user-empty" class="hidden text-sm text-center py-2" style="color:var(--muted)">No custom sets yet. Create one below.</p>
+          <button id="btn-new-set" type="button" class="btn-ghost mt-3 w-full py-3 text-sm font-semibold">+ New Set</button>
+          <label class="btn-ghost mt-2 flex w-full cursor-pointer items-center justify-center py-3 text-sm font-semibold">
+            Import Flashcard Set (JSON)
+            <input id="import-set-file" type="file" accept=".json,application/json" class="hidden" />
+          </label>
+        </div>
+        <div id="flashcard-tab-presets" class="hidden">
+          <div id="flashcard-builtin-list" class="space-y-2"></div>
+          <p id="flashcard-builtin-empty" class="hidden text-sm text-center py-2" style="color:var(--muted)">No preset sets loaded yet.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -699,15 +820,12 @@
         </div>
 
         <div id="menu-sentence-filters" class="card mt-4 p-4">
-          <label class="flex cursor-pointer items-start gap-2.5 text-sm">
-            <input id="filter-sentences-enable" type="checkbox" class="mt-0.5" />
-            <span>
-              <span class="font-semibold">Filter sentence length & complexity</span>
-              <span class="mt-0.5 block text-xs" style="color:var(--muted)">Off by default. When on, skips long or vocabulary-heavy sentences so the blank matches your level.</span>
-            </span>
+          <label class="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input id="filter-sentences-enable" type="checkbox" />
+            <span class="font-semibold">Filter sentence length & complexity</span>
           </label>
-          <p id="filter-match-count" class="mt-3 text-sm font-medium" style="color:var(--primary)">—</p>
-          <div id="filter-sentences-fields" class="filter-fields disabled mt-4 space-y-5">
+          <div id="filter-sentences-fields" class="filter-fields hidden mt-4 space-y-5">
+            <p id="filter-match-count" class="text-sm font-medium" style="color:var(--primary)">—</p>
             <div>
               <label class="text-xs font-semibold" style="color:var(--muted)">Words per sentence: <span id="filter-words-label" class="font-mono">5 – 15</span></label>
               <div class="range-wrap mt-2">
@@ -728,6 +846,18 @@
               </div>
               <div class="flex justify-between text-xs" style="color:var(--muted)"><span id="filter-avgzipf-min-label">4.9</span><span id="filter-avgzipf-max-label">6.5</span></div>
             </div>
+          </div>
+        </div>
+
+        <div id="menu-advanced-filters" class="card mt-4 p-4 hidden">
+          <label class="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input id="filter-advanced-enable" type="checkbox" />
+            <span class="font-semibold">Advanced settings</span>
+          </label>
+          <div id="filter-advanced-fields" class="hidden mt-4 space-y-3">
+            <p class="text-xs" style="color:var(--muted)">Quiz only blanks with these parts of speech (uses the tagged corpus when available). Zipf difficulty uses the lemma, not a specific sense.</p>
+            <p id="pos-filter-unavailable" class="hidden text-xs" style="color:var(--muted)">No tagged corpus found for this source yet (<span class="font-mono">lang_corpus_tagged.txt</span>).</p>
+            <div id="pos-filter-grid" class="pos-filter-grid"></div>
           </div>
         </div>
 
@@ -819,25 +949,80 @@
     </header>
     <div class="scroll-panel px-5 pb-8">
       <div class="mx-auto w-full max-w-lg space-y-4">
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <button id="btn-review-due" type="button" class="card review-action-card px-4 py-4 text-left transition hover:border-[var(--primary)]">
             <span class="block text-sm font-semibold">Practice due</span>
-            <span class="mt-1 block text-xs" style="color:var(--muted)">Spaced repetition — counts toward mastery</span>
+            <span class="mt-1 block text-xs" style="color:var(--muted)">Spaced repetition</span>
             <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 due</span>
           </button>
           <button id="btn-review-browse" type="button" class="card review-action-card px-4 py-4 text-left transition hover:border-[var(--primary)]">
-            <span class="block text-sm font-semibold">Browse bank</span>
-            <span class="mt-1 block text-xs" style="color:var(--muted)">Cycle all review sentences — no score impact</span>
-            <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 total</span>
+            <span class="block text-sm font-semibold">Browse active</span>
+            <span class="mt-1 block text-xs" style="color:var(--muted)">No score impact</span>
+            <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 active</span>
+          </button>
+          <button id="btn-review-mastered-practice" type="button" class="card review-action-card px-4 py-4 text-left transition hover:border-[var(--primary)]">
+            <span class="block text-sm font-semibold">Quiz mastered</span>
+            <span class="mt-1 block text-xs" style="color:var(--muted)">Revisit finished items</span>
+            <span class="review-action-count mt-3 block text-sm font-bold" style="color:var(--primary)">0 mastered</span>
           </button>
         </div>
         <div>
-          <p class="text-xs font-semibold" style="color:var(--muted)">Review bank</p>
+          <div class="saved-tabs">
+            <button type="button" class="saved-tab review-bank-tab active" data-tab="active">Active</button>
+            <button type="button" class="saved-tab review-bank-tab" data-tab="mastered">Mastered</button>
+          </div>
           <div id="review-bank-list" class="mt-2 space-y-2"></div>
           <p id="review-bank-empty" class="hidden mt-6 text-center text-sm" style="color:var(--muted)">No sentences in your review bank yet.</p>
         </div>
       </div>
     </div>
+  </section>
+
+  <section id="screen-conjugator" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-conj-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Conjugator</h2>
+      <span id="conj-flag" class="w-16 flex justify-end"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg space-y-4">
+        <div class="card p-4">
+          <p class="text-xs font-semibold" style="color:var(--muted)">Tenses</p>
+          <div id="conj-tense-grid" class="pos-filter-grid mt-3"></div>
+          <button id="btn-conj-start" type="button" class="btn-primary mt-5 w-full py-3 text-sm">Start practice</button>
+        </div>
+        <p class="text-xs" style="color:var(--muted)">You’ll see a pronoun, tense, and infinitive — type the conjugated form.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-conj-game" class="screen">
+    <header class="game-header">
+      <button id="btn-conj-exit" type="button" class="btn-ghost btn-game-bar">Exit</button>
+      <span class="score-pill pill btn-game-bar">Score: <span id="conj-score">0</span></span>
+    </header>
+    <main class="game-stage">
+      <div class="game-stage-inner">
+        <div class="card game-sentence-card">
+          <div id="conj-prompt" class="conj-prompt">
+            <p class="conj-inf" id="conj-infinitive">—</p>
+            <p class="conj-meta"><span id="conj-pronoun">—</span> · <span id="conj-tense">—</span></p>
+            <p class="conj-gloss" id="conj-gloss"></p>
+          </div>
+          <div class="mt-6 flex justify-center">
+            <span class="blank-inline">
+              <input id="conj-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="text-center" />
+            </span>
+          </div>
+          <p id="conj-feedback" class="mt-4 text-center text-sm font-semibold hidden"></p>
+        </div>
+        <div class="game-controls">
+          <button id="btn-conj-hint" type="button" class="btn-ghost btn-game">Hint</button>
+          <button id="btn-conj-skip" type="button" class="btn-ghost btn-game">Skip</button>
+          <button id="btn-conj-check" type="button" class="btn-primary btn-game">Check</button>
+        </div>
+      </div>
+    </main>
   </section>
 
   <section id="screen-saved" class="screen">
@@ -858,6 +1043,73 @@
         </div>
         <div id="saved-list" class="space-y-2"></div>
         <p id="saved-empty" class="hidden mt-6 text-center text-sm" style="color:var(--muted)">Nothing here yet.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-word-lookup" class="screen">
+    <header class="flex shrink-0 items-center justify-between px-5 py-4">
+      <button id="btn-word-lookup-back" type="button" class="btn-ghost px-4 py-2 text-sm">Back</button>
+      <h2 class="text-sm font-semibold">Words</h2>
+      <span class="w-16"></span>
+    </header>
+    <div class="scroll-panel px-5 pb-8">
+      <div class="mx-auto w-full max-w-lg">
+        <div class="wl-tabs" role="tablist">
+          <button type="button" class="wl-tab is-active" data-wl-tab="lookup" role="tab">Lookup</button>
+          <button type="button" class="wl-tab" data-wl-tab="progress" role="tab">Progress</button>
+        </div>
+
+        <div id="wl-panel-lookup">
+          <form id="word-lookup-form">
+            <input id="word-lookup-input" type="text" autocomplete="off" spellcheck="false" placeholder="Look up a word…" class="blocky-input w-full px-3 py-2.5 text-sm" />
+          </form>
+          <div id="word-lookup-results" class="mt-5 hidden space-y-4">
+            <div class="card p-4">
+              <p id="word-lookup-term" class="text-xl font-semibold"></p>
+              <p id="word-lookup-meta" class="mt-2 text-sm" style="color:var(--muted)"></p>
+              <p id="word-lookup-review" class="mt-1 text-sm"></p>
+            </div>
+            <div>
+              <p class="text-xs font-semibold" style="color:var(--muted)">Senses &amp; Zipf</p>
+              <div id="word-lookup-senses" class="mt-2 space-y-2"></div>
+              <p id="word-lookup-senses-empty" class="hidden mt-2 text-sm" style="color:var(--muted)">No sense inventory for this word yet.</p>
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-xs font-semibold" style="color:var(--muted)">Examples (lemma match)</p>
+                <select id="word-lookup-corpus" class="select-field rounded-full border py-1 pl-2 text-xs" style="border-color:var(--border)">
+                  <option value="wiki">Wikipedia</option>
+                  <option value="movies">Movies</option>
+                </select>
+              </div>
+              <p id="word-lookup-corpus-status" class="mt-2 text-xs" style="color:var(--muted)"></p>
+              <div id="word-lookup-examples" class="mt-2 space-y-2"></div>
+              <p id="word-lookup-examples-empty" class="hidden mt-2 text-sm" style="color:var(--muted)">No matching sentences found.</p>
+              <button id="btn-word-lookup-more" type="button" class="btn-ghost mt-3 hidden w-full px-3 py-2 text-sm">Load 10 more</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wl-panel-progress" class="hidden space-y-3">
+          <div class="flex flex-wrap items-end gap-2">
+            <div class="min-w-0 flex-1">
+              <label class="text-xs font-semibold" style="color:var(--muted)" for="mastery-corpus">Corpus</label>
+              <select id="mastery-corpus" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)">
+                <option value="wiki">Wikipedia</option>
+                <option value="movies">Movies</option>
+              </select>
+            </div>
+            <div class="min-w-0 flex-1">
+              <label class="text-xs font-semibold" style="color:var(--muted)" for="mastery-band">Zipf band</label>
+              <select id="mastery-band" class="select-field mt-1 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)"></select>
+            </div>
+          </div>
+          <p id="mastery-status" class="text-xs" style="color:var(--muted)">Loading…</p>
+          <div id="mastery-list" class="space-y-2"></div>
+          <p id="mastery-empty" class="hidden text-sm text-center py-4" style="color:var(--muted)">No tagged senses in this Zipf range.</p>
+          <button id="btn-mastery-more" type="button" class="btn-ghost hidden w-full px-3 py-2 text-sm">Show more</button>
+        </div>
       </div>
     </div>
   </section>
@@ -950,9 +1202,16 @@
 
   <div id="modal-add-flashcard" class="modal modal-backdrop">
     <div class="modal-panel">
-      <div class="flex items-center justify-between"><h3 class="font-semibold">Add To Set</h3><button type="button" class="btn-close-x" data-close-modal="modal-add-flashcard">×</button></div>
-      <p id="flashcard-word-label" class="mt-2 text-sm font-medium"></p>
-      <select id="flashcard-set-pick" class="mt-3 w-full rounded-lg border px-3 py-2 text-sm" style="border-color:var(--border)"></select>
+      <div class="flex items-center justify-between gap-3">
+        <h3 id="flashcard-word-label" class="min-w-0 truncate font-semibold text-lg"></h3>
+        <button type="button" class="btn-close-x shrink-0" data-close-modal="modal-add-flashcard">×</button>
+      </div>
+      <label class="mt-4 block text-xs font-semibold" style="color:var(--muted)" for="flashcard-set-search-pick">Flashcard set</label>
+      <div id="flashcard-set-combobox" class="custom-select mt-1 w-full">
+        <input id="flashcard-set-search-pick" type="search" autocomplete="off" placeholder="Search sets…" class="custom-select-btn" style="cursor:text; background-image:none; padding-right:.75rem;" />
+        <input type="hidden" id="flashcard-set-pick" value="" />
+        <div id="flashcard-set-menu" class="custom-select-menu" role="listbox"></div>
+      </div>
       <button id="btn-create-set-inline" type="button" class="btn-ghost mt-2 w-full py-2 text-xs">+ Create New Set</button>
       <button id="btn-confirm-add-word" type="button" class="btn-primary mt-4 w-full py-2.5 text-sm">Add Word</button>
     </div>
@@ -991,6 +1250,11 @@
   <div id="chart-tooltip"></div>
   <div id="toast" class="toast hidden"></div>
 
+  <script>
+    if (location.protocol === "file:") {
+      document.getElementById("file-protocol-banner")?.classList.add("show");
+    }
+  </script>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script type="module" src="./assets/main.js"></script>
 </body>

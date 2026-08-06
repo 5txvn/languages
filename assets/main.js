@@ -128,6 +128,10 @@ import {
   pickConjugationItem,
   conjugationCorrect,
 } from "./conjugator.js";
+import {
+  speechRecognitionSupported,
+  createSpeechListener,
+} from "./speech-input.js";
 import { LEARNED_THRESHOLD, puzzleFromReview } from "./srs.js";
 
 const $ = window.jQuery;
@@ -238,6 +242,7 @@ const state = {
   activeArticle: null,
   articleCursor: 0,
   enableTts: true,
+  answerByVoice: false,
   revisitQueue: [],
   revisitIndex: 0,
 };
@@ -247,9 +252,12 @@ function catalogLang(code) {
 }
 
 function showScreen(id) {
+  const prev = $(".screen.active").attr("id");
   $(".screen").removeClass("active");
   $(`#${id}`).addClass("active");
   if (id === "screen-home" || id === "screen-about") applyTheme(null, true);
+  if (prev === "screen-game" && id !== "screen-game") stopVoiceAnswer();
+  if (id === "screen-game") syncVoiceAnswerListening();
 }
 
 function showToast(msg) {
@@ -314,6 +322,10 @@ async function loadPersistedSettings() {
   if (s?.enableTts != null) {
     state.enableTts = s.enableTts;
     $("#setting-tts").prop("checked", s.enableTts);
+  }
+  if (s?.answerByVoice != null) {
+    state.answerByVoice = Boolean(s.answerByVoice);
+    $("#answer-by-voice").prop("checked", state.answerByVoice);
   }
   if (s?.ttsLocales) state.ttsLocales = { ...s.ttsLocales };
   if (s?.ttsRate != null) {
@@ -540,6 +552,7 @@ async function persistSettings() {
     reviewInterval: state.reviewInterval,
     groqApiKey: state.groqApiKey,
     enableTts: state.enableTts,
+    answerByVoice: state.answerByVoice,
     ttsLocales: state.ttsLocales,
     ttsRate: state.ttsRate,
     filtersByLang: existing.filtersByLang,
@@ -1231,6 +1244,7 @@ function populateCorpusSelect() {
 function renderPracticeMenu() {
   renderMenuHeader();
   populateCorpusSelect();
+  initAnswerByVoiceUi();
   const mode = state.practiceMode;
   const isFlashcard = mode === "flashcard";
   const isArticle = mode === "article";
@@ -1589,7 +1603,14 @@ function renderGameChrome() {
     }
   }
   else if (state.revealed) $("#game-hint-text").text("Press Enter To Continue");
+  else if (state.answerByVoice && speechRecognitionSupported()) {
+    $("#game-hint-text").text("Say the word · or type and press Enter · ? For Hint");
+  }
   else $("#game-hint-text").text("Press Enter To Check · ? For Hint · Highlight Any Word");
+  $("#blank-slot").toggleClass(
+    "voice-listening",
+    Boolean(state.answerByVoice && voiceListener?.listening && !state.revealed && !state.awaitingContinue)
+  );
   const $play = $("#btn-play-sentence");
   const $accents = $("#btn-accents");
   const showPlay = state.enableTts && state.puzzle?.sentence;
@@ -1703,6 +1724,7 @@ function giveHint() {
 async function onCorrect() {
   if (state.awaitingContinue || state.revealed) return;
   state.awaitingContinue = true;
+  pauseVoiceAnswer();
   stopSpeech();
 
   if (state.practiceMode === "browse") {
@@ -1757,6 +1779,7 @@ async function onCorrect() {
 async function onWrong() {
   if (state.practiceMode === "browse") {
     state.revealed = true;
+    pauseVoiceAnswer();
     renderGameChrome();
     refreshSentence();
     if (state.enableTts) feedbackWrong();
@@ -1788,6 +1811,7 @@ async function onWrong() {
   }
   await refreshBlockedWordKeys();
   state.revealed = true;
+  pauseVoiceAnswer();
   renderGameChrome();
   refreshSentence();
   if (state.enableTts) feedbackWrong();
@@ -1855,6 +1879,98 @@ function resetInput() {
   $("#blank-slot").removeClass("blank-hot blank-cold");
 }
 
+let voiceListener = null;
+
+function ensureVoiceListener() {
+  if (voiceListener) return voiceListener;
+  voiceListener = createSpeechListener({
+    getLang: () => state.ttsLocales?.[state.lang] || state.lang,
+    onWord: (word) => applySpokenWord(word),
+    onError: (err) => {
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        showToast("Microphone permission is needed for voice answers.");
+        state.answerByVoice = false;
+        $("#answer-by-voice").prop("checked", false);
+        stopVoiceAnswer();
+        persistSettings().catch(() => {});
+        renderGameChrome();
+      }
+    },
+  });
+  return voiceListener;
+}
+
+function applySpokenWord(word) {
+  if (!state.answerByVoice || !state.puzzle) return;
+  if (state.revealed || state.awaitingContinue) return;
+  if ($(".screen.active").attr("id") !== "screen-game") return;
+  const answer = state.puzzle.answer;
+  if (!word) return;
+
+  // Correct full word → accept immediately (no Enter).
+  if (wordsMatch(word, answer)) {
+    state.revealedLen = 0;
+    state.rawTyped = answer;
+    state.typed = answer;
+    syncFromRaw();
+    onCorrect();
+    return;
+  }
+
+  // Otherwise show the most recently spoken word in the blank (typing still works).
+  const remaining = Math.max(1, answer.length - state.revealedLen);
+  const capped = word.slice(0, remaining);
+  state.rawTyped = capped;
+  state.typed = capped;
+  syncFromRaw();
+}
+
+function stopVoiceAnswer() {
+  voiceListener?.stop();
+  $("#blank-slot").removeClass("voice-listening");
+}
+
+function pauseVoiceAnswer() {
+  voiceListener?.pause();
+  $("#blank-slot").removeClass("voice-listening");
+}
+
+function syncVoiceAnswerListening() {
+  if (!state.answerByVoice || !speechRecognitionSupported()) {
+    stopVoiceAnswer();
+    return;
+  }
+  if ($(".screen.active").attr("id") !== "screen-game") {
+    stopVoiceAnswer();
+    return;
+  }
+  if (state.revealed || state.awaitingContinue || !state.puzzle) {
+    pauseVoiceAnswer();
+    renderGameChrome();
+    return;
+  }
+  const listener = ensureVoiceListener();
+  listener.setLang(state.ttsLocales?.[state.lang] || state.lang);
+  if (listener.listening) {
+    $("#blank-slot").addClass("voice-listening");
+    return;
+  }
+  listener.start();
+  renderGameChrome();
+}
+
+function initAnswerByVoiceUi() {
+  const ok = speechRecognitionSupported();
+  $("#answer-by-voice").prop("disabled", !ok);
+  $("#answer-by-voice-unsupported").toggleClass("hidden", ok);
+  if (!ok) {
+    $("#answer-by-voice").prop("checked", false);
+    state.answerByVoice = false;
+  } else {
+    $("#answer-by-voice").prop("checked", state.answerByVoice);
+  }
+}
+
 async function loadTranslation() {
   state.translation = "…";
   state.answerTranslation = "";
@@ -1877,6 +1993,7 @@ async function loadTranslation() {
   }
   $("#game-translation").text(state.translation);
   await updateFavoriteButton();
+  syncVoiceAnswerListening();
 }
 
 let advancingQuestion = false;
@@ -2270,6 +2387,7 @@ async function startGame(lo, hi, name) {
   state.zipfLo = lo;
   state.zipfHi = hi;
   state.levelName = name;
+  state.answerByVoice = $("#answer-by-voice").is(":checked") && speechRecognitionSupported();
   state.sessionPoints = 0;
   state.wrongQueue = [];
   state.questionsSinceReview = 0;
@@ -3197,6 +3315,7 @@ async function init() {
     state.catalog = await res.json();
     await refreshAvailability();
     await loadPersistedSettings();
+    initAnswerByVoiceUi();
     syncFilterUI({ persist: false });
     setLoadProgress(100, "Ready");
     await routeAfterLoad();
@@ -3642,8 +3761,27 @@ $(".saved-tab").on("click", function () {
 });
 
 $("#btn-play-sentence").on("click", () => {
+  pauseVoiceAnswer();
   stopSpeech();
-  if (state.puzzle?.sentence) speakSentence(state.puzzle.sentence, state.lang).catch(() => {});
+  if (state.puzzle?.sentence) {
+    speakSentence(state.puzzle.sentence, state.lang)
+      .catch(() => {})
+      .finally(() => {
+        // Brief delay so TTS audio isn't picked up as an answer.
+        setTimeout(() => syncVoiceAnswerListening(), 400);
+      });
+  } else {
+    syncVoiceAnswerListening();
+  }
+});
+$("#answer-by-voice").on("change", async () => {
+  state.answerByVoice = $("#answer-by-voice").is(":checked") && speechRecognitionSupported();
+  if (!speechRecognitionSupported()) {
+    $("#answer-by-voice").prop("checked", false);
+    state.answerByVoice = false;
+  }
+  await persistSettings();
+  if ($(".screen.active").attr("id") === "screen-game") syncVoiceAnswerListening();
 });
 $("#btn-play-lookup-word").on("click", () => {
   stopSpeech();

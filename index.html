@@ -84,6 +84,10 @@
     .game-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem; }
     .game-controls .btn-game { display: inline-flex; align-items: center; gap: .4rem; }
     .game-controls .game-btn-icon { font-size: .9rem; line-height: 1; }
+    .blank-inline.voice-listening {
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent);
+      border-radius: 4px;
+    }
     .game-hint-text { margin: 0; text-align: center; font-size: .75rem; color: var(--muted); line-height: 1.4; }
     .game-article { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; text-align: left; }
     .settings-modal-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
@@ -792,6 +796,11 @@
               <option value="200">200</option>
             </select>
           </div>
+          <label id="answer-by-voice-label" class="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input id="answer-by-voice" type="checkbox" class="mt-0" />
+            <span class="font-medium">Answer by speaking</span>
+          </label>
+          <p id="answer-by-voice-unsupported" class="hidden text-xs" style="color:var(--muted)">Voice answers need a browser with speech recognition (Chrome / Edge).</p>
         </div>
 
         <div id="menu-article-pick" class="card hidden p-4">
